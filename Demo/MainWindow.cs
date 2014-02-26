@@ -17,6 +17,8 @@ namespace Orchestra
     /// </summary>
 	public class MainWindow : GameWindow
     {
+        Random rand = new Random();
+
         Thread rendering_thread;
         object update_lock = new object();
         bool exit = false;
@@ -28,13 +30,23 @@ namespace Orchestra
         Microsoft.Kinect.DepthImageFrame depth_image, depth_image_new;
         Microsoft.Kinect.SkeletonFrame skeleton_frame, skeleton_frame_new;
         Microsoft.Kinect.Skeleton[] skeletons;
+        Microsoft.Kinect.Skeleton skeleton;
+        double last_skeleton_time;
 
         double time;
         Vector3 camera_pos;
         Vector3 camera_vel;
         double cam_theta, cam_y, cam_dtheta, cam_dy, cam_atheta;
+        CAM_FOCUS cam_focus = CAM_FOCUS.SCENE;
 
-        Random rand = new Random();
+        Microsoft.Kinect.SkeletonPoint last_hip;
+        float[] last_ys = new float[32];
+
+        enum CAM_FOCUS
+        {
+            SCENE,
+            TEMPO
+        }
 
 		public MainWindow()
 		{
@@ -159,6 +171,29 @@ namespace Orchestra
                 depth_image = depth_image_new;
                 skeleton_frame = skeleton_frame_new;
             }
+
+            if (skeleton_frame != null)
+            {
+                skeleton_frame.CopySkeletonDataTo(skeletons);
+                last_skeleton_time = time;
+                skeleton = null;
+                for (int i = 0; i < skeleton_frame.SkeletonArrayLength; ++i)
+                {
+                    if (skeletons[i].TrackingState == Microsoft.Kinect.SkeletonTrackingState.Tracked)
+                    {
+                        skeleton = skeletons[i];
+                        break;
+                    }
+                }
+                for (int i = 0; i < last_ys.Length - 1; ++i)
+                    last_ys[i] = last_ys[i + 1];
+                if (skeleton != null && skeleton.Joints[Microsoft.Kinect.JointType.HandRight].TrackingState != Microsoft.Kinect.JointTrackingState.NotTracked && skeleton.Joints[Microsoft.Kinect.JointType.HipCenter].TrackingState != Microsoft.Kinect.JointTrackingState.NotTracked)
+                    last_ys[last_ys.Length - 1] = skeleton.Joints[Microsoft.Kinect.JointType.HandRight].Position.Y - skeleton.Joints[Microsoft.Kinect.JointType.HipCenter].Position.Y;
+                else
+                    last_ys[last_ys.Length - 1] = float.NaN;
+                if (skeleton != null && skeleton.Joints[Microsoft.Kinect.JointType.HipCenter].TrackingState != Microsoft.Kinect.JointTrackingState.NotTracked)
+                    last_hip = skeleton.Joints[Microsoft.Kinect.JointType.HipCenter].Position;
+            }
         }
 
         #endregion
@@ -182,14 +217,14 @@ namespace Orchestra
                 }
             }
 
+            PositionCamera(dt);
             RenderPointCloud(dt);
             RenderSkeleton(dt);
+            RenderTempo(dt);
         }
 
-        void RenderPointCloud(double dt)
+        void PositionCamera(double dt)
         {
-            GL.PointSize(1);
-
             lock (update_lock)
             {
                 Matrix4 projection = Matrix4.CreatePerspectiveFieldOfView((float)Math.PI / 4, (float)(viewport_width / viewport_height), 1f, 100000f);
@@ -200,74 +235,73 @@ namespace Orchestra
             float focus = 2000f;
             float distance = 8000f;
             float height = 2000f;
-            cam_atheta += (0.5 - rand.NextDouble())/10 - cam_atheta/100 - cam_dtheta/1000;
-            cam_dtheta += cam_atheta/10;
-            cam_dy += 1000 * rand.NextDouble() - cam_y/2;
+            cam_atheta += (0.5 - rand.NextDouble()) / 10 - cam_atheta / 100 - cam_dtheta / 1000;
+            cam_dtheta += cam_atheta / 10;
+            cam_dy += 1000 * rand.NextDouble() - cam_y / 2;
             cam_theta += cam_dtheta / 500;
             cam_y += cam_dy / 10000;
-            Vector3 camera_pos = new Vector3((float)(distance * Math.Cos(cam_theta)), (float)cam_y+height, (float)(focus + distance * Math.Sin(cam_theta)));
-            Matrix4 modelview = Matrix4.LookAt(camera_pos, new Vector3(0,0,focus), Vector3.UnitY);
+            Vector3 camera_pos = new Vector3((float)(distance * Math.Cos(cam_theta)), (float)cam_y + height, (float)(focus + distance * Math.Sin(cam_theta)));
+            Matrix4 modelview = Matrix4.LookAt(camera_pos, new Vector3(0, 0, focus), Vector3.UnitY);
             GL.MatrixMode(MatrixMode.Modelview);
             GL.LoadMatrix(ref modelview);
+        }
 
-            GL.Begin(BeginMode.Points);
+        void RenderPointCloud(double dt)
+        {
+            if (depth_image == null) return;
+
+            GL.PointSize(1);
             GL.Color3(1f, 1f, 1f);
-            if (depth_image != null)
+            GL.Begin(BeginMode.Points);
+            var pixels = depth_image.GetRawPixelData();
+            for (int i = 0; i < depth_image.PixelDataLength; i += 5)
             {
-                var pixels = depth_image.GetRawPixelData();
-                for (int i = 0; i < depth_image.PixelDataLength; i += 5)
-                {
-                    int x = i % depth_image.Width - depth_image.Width / 2;
-                    int y = -(i / depth_image.Width - depth_image.Height / 2);
-                    int z = pixels[i].Depth;
-                    GL.Vertex3(x*z/500, y*z/500, z);
-                }
+                int x = i % depth_image.Width - depth_image.Width / 2;
+                int y = -(i / depth_image.Width - depth_image.Height / 2);
+                int z = pixels[i].Depth;
+                GL.Vertex3(x*z/500, y*z/500, z);
             }
-
             GL.End();
         }
 
         void RenderSkeleton(double dt)
         {
+            if (skeleton_frame == null) return;
+
             GL.LineWidth(2);
-
-            if (skeleton_frame != null)
+            for (int i = 0; i < skeleton_frame.SkeletonArrayLength; ++i)
             {
-                skeleton_frame.CopySkeletonDataTo(skeletons);
-                for (int i = 0; i < skeleton_frame.SkeletonArrayLength; ++i)
-                {
-                    var skel = skeletons[i];
-                    if (skel.TrackingState != Microsoft.Kinect.SkeletonTrackingState.Tracked) continue;
+                var skel = skeletons[i];
+                if (skel.TrackingState != Microsoft.Kinect.SkeletonTrackingState.Tracked) continue;
 
-                    // Render Torso
-                    DrawBone(skel, Microsoft.Kinect.JointType.Head, Microsoft.Kinect.JointType.ShoulderCenter);
-                    DrawBone(skel, Microsoft.Kinect.JointType.ShoulderCenter, Microsoft.Kinect.JointType.ShoulderLeft);
-                    DrawBone(skel, Microsoft.Kinect.JointType.ShoulderCenter, Microsoft.Kinect.JointType.ShoulderRight);
-                    DrawBone(skel, Microsoft.Kinect.JointType.ShoulderCenter, Microsoft.Kinect.JointType.Spine);
-                    DrawBone(skel, Microsoft.Kinect.JointType.Spine, Microsoft.Kinect.JointType.HipCenter);
-                    DrawBone(skel, Microsoft.Kinect.JointType.HipCenter, Microsoft.Kinect.JointType.HipLeft);
-                    DrawBone(skel, Microsoft.Kinect.JointType.HipCenter, Microsoft.Kinect.JointType.HipRight);
+                // Render Torso
+                DrawBone(skel, Microsoft.Kinect.JointType.Head, Microsoft.Kinect.JointType.ShoulderCenter);
+                DrawBone(skel, Microsoft.Kinect.JointType.ShoulderCenter, Microsoft.Kinect.JointType.ShoulderLeft);
+                DrawBone(skel, Microsoft.Kinect.JointType.ShoulderCenter, Microsoft.Kinect.JointType.ShoulderRight);
+                DrawBone(skel, Microsoft.Kinect.JointType.ShoulderCenter, Microsoft.Kinect.JointType.Spine);
+                DrawBone(skel, Microsoft.Kinect.JointType.Spine, Microsoft.Kinect.JointType.HipCenter);
+                DrawBone(skel, Microsoft.Kinect.JointType.HipCenter, Microsoft.Kinect.JointType.HipLeft);
+                DrawBone(skel, Microsoft.Kinect.JointType.HipCenter, Microsoft.Kinect.JointType.HipRight);
 
-                    // Left Arm
-                    DrawBone(skel, Microsoft.Kinect.JointType.ShoulderLeft, Microsoft.Kinect.JointType.ElbowLeft);
-                    DrawBone(skel, Microsoft.Kinect.JointType.ElbowLeft, Microsoft.Kinect.JointType.WristLeft);
-                    DrawBone(skel, Microsoft.Kinect.JointType.WristLeft, Microsoft.Kinect.JointType.HandLeft);
+                // Left Arm
+                DrawBone(skel, Microsoft.Kinect.JointType.ShoulderLeft, Microsoft.Kinect.JointType.ElbowLeft);
+                DrawBone(skel, Microsoft.Kinect.JointType.ElbowLeft, Microsoft.Kinect.JointType.WristLeft);
+                DrawBone(skel, Microsoft.Kinect.JointType.WristLeft, Microsoft.Kinect.JointType.HandLeft);
 
-                    // Right Arm
-                    DrawBone(skel, Microsoft.Kinect.JointType.ShoulderRight, Microsoft.Kinect.JointType.ElbowRight);
-                    DrawBone(skel, Microsoft.Kinect.JointType.ElbowRight, Microsoft.Kinect.JointType.WristRight);
-                    DrawBone(skel, Microsoft.Kinect.JointType.WristRight, Microsoft.Kinect.JointType.HandRight);
+                // Right Arm
+                DrawBone(skel, Microsoft.Kinect.JointType.ShoulderRight, Microsoft.Kinect.JointType.ElbowRight);
+                DrawBone(skel, Microsoft.Kinect.JointType.ElbowRight, Microsoft.Kinect.JointType.WristRight);
+                DrawBone(skel, Microsoft.Kinect.JointType.WristRight, Microsoft.Kinect.JointType.HandRight);
 
-                    // Left Leg
-                    DrawBone(skel, Microsoft.Kinect.JointType.HipLeft, Microsoft.Kinect.JointType.KneeLeft);
-                    DrawBone(skel, Microsoft.Kinect.JointType.KneeLeft, Microsoft.Kinect.JointType.AnkleLeft);
-                    DrawBone(skel, Microsoft.Kinect.JointType.AnkleLeft, Microsoft.Kinect.JointType.FootLeft);
+                // Left Leg
+                DrawBone(skel, Microsoft.Kinect.JointType.HipLeft, Microsoft.Kinect.JointType.KneeLeft);
+                DrawBone(skel, Microsoft.Kinect.JointType.KneeLeft, Microsoft.Kinect.JointType.AnkleLeft);
+                DrawBone(skel, Microsoft.Kinect.JointType.AnkleLeft, Microsoft.Kinect.JointType.FootLeft);
 
-                    // Right Leg
-                    DrawBone(skel, Microsoft.Kinect.JointType.HipRight, Microsoft.Kinect.JointType.KneeRight);
-                    DrawBone(skel, Microsoft.Kinect.JointType.KneeRight, Microsoft.Kinect.JointType.AnkleRight);
-                    DrawBone(skel, Microsoft.Kinect.JointType.AnkleRight, Microsoft.Kinect.JointType.FootRight);
-                }
+                // Right Leg
+                DrawBone(skel, Microsoft.Kinect.JointType.HipRight, Microsoft.Kinect.JointType.KneeRight);
+                DrawBone(skel, Microsoft.Kinect.JointType.KneeRight, Microsoft.Kinect.JointType.AnkleRight);
+                DrawBone(skel, Microsoft.Kinect.JointType.AnkleRight, Microsoft.Kinect.JointType.FootRight);
             }
         }
 
@@ -275,10 +309,24 @@ namespace Orchestra
         {
             var lh = skel.Joints[a].Position;
             var rh = skel.Joints[b].Position;
-            GL.Begin(BeginMode.Lines);
             GL.Color3(1f, 1f, 1f);
+            GL.Begin(BeginMode.Lines);
             GL.Vertex3(new Vector3(1000 * lh.X, 1000 * lh.Y, 1000 * lh.Z));
             GL.Vertex3(new Vector3(1000 * rh.X, 1000 * rh.Y, 1000 * rh.Z));
+            GL.End();
+        }
+
+        public void RenderTempo(double dt)
+        {
+            if (skeleton == null) return;
+
+            GL.PointSize(4);
+            GL.Color3(1f, 1f, 1f);
+            GL.Begin(BeginMode.Points);
+            for (int i = 0; i < last_ys.Length; ++i)
+            {
+                GL.Vertex3(new Vector3(1000*last_hip.X + 1000 + (last_ys.Length-i)*50, 1000*last_hip.Y + 1000 + last_ys[i]*1000, 1000*last_hip.Z));
+            }
             GL.End();
         }
 
