@@ -27,6 +27,7 @@ namespace Orchestra
         int viewport_width, viewport_height;
 
         Microsoft.Kinect.KinectSensor kinect;
+        bool depth_image_update, skeleton_update;
         Microsoft.Kinect.DepthImageFrame depth_image, depth_image_new;
         Microsoft.Kinect.SkeletonFrame skeleton_frame, skeleton_frame_new;
         Microsoft.Kinect.Skeleton[] skeletons;
@@ -41,14 +42,16 @@ namespace Orchestra
 
         Microsoft.Kinect.SkeletonPoint last_hip;
         float[] last_ys = new float[32];
+        bool[] last_beats = new bool[32];
+        bool decreasing;
 
         enum CAM_FOCUS
         {
             SCENE,
             TEMPO
         }
-        bool render_skeleton;
-        bool render_tempo;
+        bool render_skeleton = true;
+        bool render_tempo = true;
 
 		public MainWindow()
 		{
@@ -85,17 +88,25 @@ namespace Orchestra
                     break;
                 }
             }
-            if (kinect == null) Exit();
+            if (kinect == null) { Exit(); return; }
             kinect.DepthStream.Enable();
             kinect.SkeletonStream.Enable();
             skeletons = new Microsoft.Kinect.Skeleton[kinect.SkeletonStream.FrameSkeletonArrayLength];
             kinect.DepthFrameReady += delegate(object sender, Microsoft.Kinect.DepthImageFrameReadyEventArgs e)
             {
-                lock (update_lock) depth_image_new = e.OpenDepthImageFrame();
+                lock (update_lock)
+                {
+                    depth_image_new = e.OpenDepthImageFrame();
+                    depth_image_update = true;
+                }
             };
             kinect.SkeletonFrameReady += delegate(object sender, Microsoft.Kinect.SkeletonFrameReadyEventArgs e)
             {
-                lock (update_lock) skeleton_frame_new = e.OpenSkeletonFrame();
+                lock (update_lock)
+                {
+                    skeleton_frame_new = e.OpenSkeletonFrame();
+                    skeleton_update = true;
+                }
             };
             kinect.Start();
         }
@@ -173,32 +184,57 @@ namespace Orchestra
 
             lock (update_lock)
             {
-                //if (depth_image != null) depth_image.Dispose();
-                depth_image = depth_image_new;
-                skeleton_frame = skeleton_frame_new;
+                if (depth_image_update)
+                {
+                    depth_image_update = false;
+                    if (depth_image != null) depth_image.Dispose();
+                    depth_image = depth_image_new;
+                }
             }
 
-            if (skeleton_frame != null)
+            lock (update_lock)
             {
-                skeleton_frame.CopySkeletonDataTo(skeletons);
-                last_skeleton_time = time;
-                skeleton = null;
-                for (int i = 0; i < skeleton_frame.SkeletonArrayLength; ++i)
+                if (skeleton_update)
                 {
-                    if (skeletons[i].TrackingState == Microsoft.Kinect.SkeletonTrackingState.Tracked)
+                    skeleton_update = false;
+                    if (skeleton_frame != null) skeleton_frame.Dispose();
+                    skeleton_frame = skeleton_frame_new;
+
+                    skeleton_frame.CopySkeletonDataTo(skeletons);
+                    last_skeleton_time = time;
+                    skeleton = null;
+                    for (int i = 0; i < skeleton_frame.SkeletonArrayLength; ++i)
                     {
-                        skeleton = skeletons[i];
-                        break;
+                        if (skeletons[i].TrackingState == Microsoft.Kinect.SkeletonTrackingState.Tracked)
+                        {
+                            skeleton = skeletons[i];
+                            break;
+                        }
+                    }
+
+                    if (skeleton != null)
+                    {
+                        for (int i = 0; i < last_ys.Length - 1; ++i)
+                            last_ys[i] = last_ys[i + 1];
+                        if (skeleton != null && skeleton.Joints[Microsoft.Kinect.JointType.HandRight].TrackingState != Microsoft.Kinect.JointTrackingState.NotTracked && skeleton.Joints[Microsoft.Kinect.JointType.HipCenter].TrackingState != Microsoft.Kinect.JointTrackingState.NotTracked)
+                            last_ys[last_ys.Length - 1] = skeleton.Joints[Microsoft.Kinect.JointType.HandRight].Position.Y - skeleton.Joints[Microsoft.Kinect.JointType.HipCenter].Position.Y;
+                        else
+                            last_ys[last_ys.Length - 1] = float.NaN;
+                        if (skeleton != null && skeleton.Joints[Microsoft.Kinect.JointType.HipCenter].TrackingState != Microsoft.Kinect.JointTrackingState.NotTracked)
+                            last_hip = skeleton.Joints[Microsoft.Kinect.JointType.HipCenter].Position;
+                        for (int i = 0; i < last_beats.Length - 1; ++i)
+                            last_beats[i] = last_beats[i + 1];
+                        if (decreasing && last_ys[last_ys.Length - 3] < last_ys[last_ys.Length - 2] && last_ys[last_ys.Length - 2] < last_ys[last_ys.Length - 1])
+                        {
+                            last_beats[last_beats.Length - 1] = true;
+                            decreasing = false;
+                        }
+                        else
+                            last_beats[last_beats.Length - 1] = false;
+                        if (!decreasing && last_ys[last_ys.Length - 3] > last_ys[last_ys.Length - 2] && last_ys[last_ys.Length - 2] > last_ys[last_ys.Length - 1])
+                            decreasing = true;
                     }
                 }
-                for (int i = 0; i < last_ys.Length - 1; ++i)
-                    last_ys[i] = last_ys[i + 1];
-                if (skeleton != null && skeleton.Joints[Microsoft.Kinect.JointType.HandRight].TrackingState != Microsoft.Kinect.JointTrackingState.NotTracked && skeleton.Joints[Microsoft.Kinect.JointType.HipCenter].TrackingState != Microsoft.Kinect.JointTrackingState.NotTracked)
-                    last_ys[last_ys.Length - 1] = skeleton.Joints[Microsoft.Kinect.JointType.HandRight].Position.Y - skeleton.Joints[Microsoft.Kinect.JointType.HipCenter].Position.Y;
-                else
-                    last_ys[last_ys.Length - 1] = float.NaN;
-                if (skeleton != null && skeleton.Joints[Microsoft.Kinect.JointType.HipCenter].TrackingState != Microsoft.Kinect.JointTrackingState.NotTracked)
-                    last_hip = skeleton.Joints[Microsoft.Kinect.JointType.HipCenter].Position;
             }
         }
 
@@ -280,6 +316,9 @@ namespace Orchestra
                 var skel = skeletons[i];
                 if (skel.TrackingState != Microsoft.Kinect.SkeletonTrackingState.Tracked) continue;
 
+                GL.Color3(1f, 1f, 1f);
+                GL.Begin(BeginMode.Lines);
+
                 // Render Torso
                 DrawBone(skel, Microsoft.Kinect.JointType.Head, Microsoft.Kinect.JointType.ShoulderCenter);
                 DrawBone(skel, Microsoft.Kinect.JointType.ShoulderCenter, Microsoft.Kinect.JointType.ShoulderLeft);
@@ -308,6 +347,8 @@ namespace Orchestra
                 DrawBone(skel, Microsoft.Kinect.JointType.HipRight, Microsoft.Kinect.JointType.KneeRight);
                 DrawBone(skel, Microsoft.Kinect.JointType.KneeRight, Microsoft.Kinect.JointType.AnkleRight);
                 DrawBone(skel, Microsoft.Kinect.JointType.AnkleRight, Microsoft.Kinect.JointType.FootRight);
+
+                GL.End();
             }
         }
 
@@ -315,11 +356,8 @@ namespace Orchestra
         {
             var lh = skel.Joints[a].Position;
             var rh = skel.Joints[b].Position;
-            GL.Color3(1f, 1f, 1f);
-            GL.Begin(BeginMode.Lines);
             GL.Vertex3(new Vector3(1000 * lh.X, 1000 * lh.Y, 1000 * lh.Z));
             GL.Vertex3(new Vector3(1000 * rh.X, 1000 * rh.Y, 1000 * rh.Z));
-            GL.End();
         }
 
         public void RenderTempo(double dt)
@@ -331,7 +369,18 @@ namespace Orchestra
             GL.Begin(BeginMode.Points);
             for (int i = 0; i < last_ys.Length; ++i)
             {
-                GL.Vertex3(new Vector3(1000*last_hip.X + 1000 + (last_ys.Length-i)*50, 1000*last_hip.Y + 1000 + last_ys[i]*1000, 1000*last_hip.Z));
+                GL.Vertex3(new Vector3(1000 * last_hip.X + 500 + (last_ys.Length - i) * 50, last_hip.Y + last_ys[i] * 1000, 1000 * last_hip.Z));
+            }
+            GL.End();
+            GL.LineWidth(4);
+            GL.Begin(BeginMode.Lines);
+            for (int i = 0; i < last_beats.Length; ++i)
+            {
+                if (last_beats[i])
+                {
+                    GL.Vertex3(new Vector3(1000 * last_hip.X + 500 + (last_beats.Length - i) * 50, last_hip.Y - 500 + last_ys[i] * 1000, 1000 * last_hip.Z));
+                    GL.Vertex3(new Vector3(1000 * last_hip.X + 500 + (last_beats.Length - i) * 50, last_hip.Y + 500 + last_ys[i] * 1000, 1000 * last_hip.Z));
+                }
             }
             GL.End();
         }
