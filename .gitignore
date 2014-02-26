@@ -1,3 +1,6 @@
 bin
 obj
 *.userprefs
+Libraries/OpenTK/Debug/Data/Audio/the_ring_that_fell.wav
+*.DS_Store
+*.suo

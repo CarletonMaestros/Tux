@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Threading;
+
 using OpenTK;
 using OpenTK.Graphics;
 using OpenTK.Graphics.OpenGL;
@@ -16,42 +17,34 @@ namespace Orchestra
     /// </summary>
 	public class MainWindow : GameWindow
     {
-        bool viewport_changed = true;
-        int viewport_width, viewport_height;
-        bool position_changed = true;
-        int position_x, position_y;
-        float position_dx, position_dy;
-        bool exit = false;
         Thread rendering_thread;
         object update_lock = new object();
-        const float GravityAccel = -9.81f;
-        struct Particle
-        {
-            public Vector2 Position;
-            public Vector2 Velocity;
-            public Color4 Color;
-        }
-        List<Particle> Particles = new List<Particle>();
+        bool exit = false;
+
+        bool viewport_changed = true;
+        int viewport_width, viewport_height;
+
+        Microsoft.Kinect.KinectSensor kinect;
+        Microsoft.Kinect.DepthImageFrame depth_image, depth_image_new;
+        Microsoft.Kinect.SkeletonFrame skeleton_frame, skeleton_frame_new;
+        Microsoft.Kinect.Skeleton[] skeletons;
+
+        double time;
+        Vector3 camera_pos;
+        Vector3 camera_vel;
+        double cam_theta, cam_y, cam_dtheta, cam_dy, cam_atheta;
+
         Random rand = new Random();
 
 		public MainWindow()
-            : base(800, 600)
 		{
-//			WindowState = WindowState.Fullscreen;
+            WindowState = WindowState.Fullscreen;
+            CursorVisible = false;
 
             Keyboard.KeyDown += delegate(object sender, KeyboardKeyEventArgs e)
             {
                 if (e.Key == Key.Escape)
                     this.Exit();
-            };
-
-            Keyboard.KeyUp += delegate(object sender, KeyboardKeyEventArgs e)
-            {
-                if (e.Key == Key.F11)
-                    if (this.WindowState == WindowState.Fullscreen)
-                        this.WindowState = WindowState.Normal;
-                    else
-                        this.WindowState = WindowState.Fullscreen;
             };
 
             Resize += delegate(object sender, EventArgs e)
@@ -66,24 +59,27 @@ namespace Orchestra
                 }
             };
 
-            Move += delegate(object sender, EventArgs e)
+            foreach (var sensor in Microsoft.Kinect.KinectSensor.KinectSensors)
             {
-                // Note that we cannot call any OpenGL methods directly. What we can do is set
-                // a flag and respond to it from the rendering thread.
-                lock (update_lock)
+                if (sensor.Status == Microsoft.Kinect.KinectStatus.Connected)
                 {
-                    position_changed = true;
-                    position_dx = (position_x - X) / (float)Width;
-                    position_dy = (position_y - Y) / (float)Height;
-                    position_x = X;
-                    position_y = Y;
+                    kinect = sensor;
+                    break;
                 }
+            }
+            if (kinect == null) Exit();
+            kinect.DepthStream.Enable();
+            kinect.SkeletonStream.Enable();
+            skeletons = new Microsoft.Kinect.Skeleton[kinect.SkeletonStream.FrameSkeletonArrayLength];
+            kinect.DepthFrameReady += delegate(object sender, Microsoft.Kinect.DepthImageFrameReadyEventArgs e)
+            {
+                lock (update_lock) depth_image_new = e.OpenDepthImageFrame();
             };
-
-            // Make sure initial position are correct, otherwise we'll give a huge
-            // initial velocity to the balls.
-            position_x = X;
-            position_y = Y;
+            kinect.SkeletonFrameReady += delegate(object sender, Microsoft.Kinect.SkeletonFrameReadyEventArgs e)
+            {
+                lock (update_lock) skeleton_frame_new = e.OpenSkeletonFrame();
+            };
+            kinect.Start();
         }
 
         #region OnLoad
@@ -127,26 +123,11 @@ namespace Orchestra
 
             VSync = VSyncMode.On;
 
-            for (int i = 0; i < 64; i++)
-            {
-                Particle p = new Particle();
-                p.Position = new Vector2((float)rand.NextDouble() * 2 - 1, (float)rand.NextDouble() * 2 - 1);
-                p.Color.R = (float)rand.NextDouble();
-                p.Color.G = (float)rand.NextDouble();
-                p.Color.B = (float)rand.NextDouble();
-                Particles.Add(p);
-            }
-
             // Since we don't use OpenTK's timing mechanism, we need to keep time ourselves;
             Stopwatch render_watch = new Stopwatch();
             Stopwatch update_watch = new Stopwatch();
             update_watch.Start();
             render_watch.Start();
-
-            GL.ClearColor(Color.MidnightBlue);
-            GL.Enable(EnableCap.DepthTest);
-            GL.Enable(EnableCap.PointSmooth);
-            GL.PointSize(16);
 
             while (!exit)
             {
@@ -168,61 +149,15 @@ namespace Orchestra
 
         #region Update
 
-        void Update(double time)
+        void Update(double dt)
         {
+            time += dt;
+
             lock (update_lock)
             {
-                // When the user moves the window we make the particles react to
-                // this movement. The reaction is semi-random and not physically
-                // correct. It looks quite good, however.
-                if (position_changed)
-                {
-                    for (int i = 0; i < Particles.Count; i++)
-                    {
-                        Particle p = Particles[i];
-                        p.Velocity += new Vector2(
-                            16 * (position_dx + 0.05f * (float)(rand.NextDouble() - 0.5)),
-                            32 * (position_dy + 0.05f * (float)(rand.NextDouble() - 0.5)));
-                        Particles[i] = p;
-                    }
-
-                    position_changed = false;
-                }
-            }
-
-            // For simplicity, we use simple Euler integration to simulate particle movement.
-            // This is not accurate, especially under varying timesteps (as is the case here).
-            // A better solution would have been time-corrected Verlet integration, as
-            // described here:
-            // http://www.gamedev.net/reference/programming/features/verlet/
-            for (int i = 0; i < Particles.Count; i++)
-            {
-                Particle p = Particles[i];
-
-                p.Velocity.X = Math.Abs(p.Position.X) >= 1 ?-p.Velocity.X * 0.92f : p.Velocity.X * 0.97f;
-                p.Velocity.Y = Math.Abs(p.Position.Y) >= 1 ? -p.Velocity.Y * 0.92f : p.Velocity.Y * 0.97f;
-                if (p.Position.Y > -0.99)
-                {
-                    p.Velocity.Y += (float)(GravityAccel * time);
-                }
-                else
-                {
-                    if (Math.Abs(p.Velocity.Y) < 0.02)
-                    {
-                        p.Velocity.Y = 0;
-                        p.Position.Y = -1;
-                    }
-                    else
-                    {
-                        p.Velocity.Y *= 0.9f;
-                    }
-                }
-
-                p.Position += p.Velocity * (float)time;
-                if (p.Position.Y <= -1)
-                    p.Position.Y = -1;
-
-                Particles[i] = p;
+                //if (depth_image != null) depth_image.Dispose();
+                depth_image = depth_image_new;
+                skeleton_frame = skeleton_frame_new;
             }
         }
 
@@ -233,8 +168,11 @@ namespace Orchestra
         /// <summary>
         /// This is our main rendering function, which executes on the rendering thread.
         /// </summary>
-        public void Render(double time)
+        public void Render(double dt)
         {
+            GL.ClearColor(Color.Black);
+            GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+
             lock (update_lock)
             {
                 if (viewport_changed)
@@ -244,24 +182,103 @@ namespace Orchestra
                 }
             }
 
-            Matrix4 perspective =
-                Matrix4.CreateOrthographic(2, 2, -1, 1);
-            GL.MatrixMode(MatrixMode.Projection);
-            GL.LoadMatrix(ref perspective);
+            RenderPointCloud(dt);
+            RenderSkeleton(dt);
+        }
 
+        void RenderPointCloud(double dt)
+        {
+            GL.PointSize(1);
+
+            lock (update_lock)
+            {
+                Matrix4 projection = Matrix4.CreatePerspectiveFieldOfView((float)Math.PI / 4, (float)(viewport_width / viewport_height), 1f, 100000f);
+                GL.MatrixMode(MatrixMode.Projection);
+                GL.LoadMatrix(ref projection);
+            }
+
+            float focus = 2000f;
+            float distance = 8000f;
+            float height = 2000f;
+            cam_atheta += (0.5 - rand.NextDouble())/10 - cam_atheta/100 - cam_dtheta/1000;
+            cam_dtheta += cam_atheta/10;
+            cam_dy += 1000 * rand.NextDouble() - cam_y/2;
+            cam_theta += cam_dtheta / 500;
+            cam_y += cam_dy / 10000;
+            Vector3 camera_pos = new Vector3((float)(distance * Math.Cos(cam_theta)), (float)cam_y+height, (float)(focus + distance * Math.Sin(cam_theta)));
+            Matrix4 modelview = Matrix4.LookAt(camera_pos, new Vector3(0,0,focus), Vector3.UnitY);
             GL.MatrixMode(MatrixMode.Modelview);
-            GL.LoadIdentity();
-
-            GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+            GL.LoadMatrix(ref modelview);
 
             GL.Begin(BeginMode.Points);
-			GL.Translate(5, 2, -1);
-            foreach (Particle p in Particles)
+            GL.Color3(1f, 1f, 1f);
+            if (depth_image != null)
             {
-                GL.Color4(p.Color);
-				Vector3 v = new Vector3(p.Position.X, p.Position.Y, 0.01f);
-				GL.Vertex3(v);
+                var pixels = depth_image.GetRawPixelData();
+                for (int i = 0; i < depth_image.PixelDataLength; i += 5)
+                {
+                    int x = i % depth_image.Width - depth_image.Width / 2;
+                    int y = -(i / depth_image.Width - depth_image.Height / 2);
+                    int z = pixels[i].Depth;
+                    GL.Vertex3(x*z/500, y*z/500, z);
+                }
             }
+
+            GL.End();
+        }
+
+        void RenderSkeleton(double dt)
+        {
+            GL.LineWidth(2);
+
+            if (skeleton_frame != null)
+            {
+                skeleton_frame.CopySkeletonDataTo(skeletons);
+                for (int i = 0; i < skeleton_frame.SkeletonArrayLength; ++i)
+                {
+                    var skel = skeletons[i];
+                    if (skel.TrackingState != Microsoft.Kinect.SkeletonTrackingState.Tracked) continue;
+
+                    // Render Torso
+                    DrawBone(skel, Microsoft.Kinect.JointType.Head, Microsoft.Kinect.JointType.ShoulderCenter);
+                    DrawBone(skel, Microsoft.Kinect.JointType.ShoulderCenter, Microsoft.Kinect.JointType.ShoulderLeft);
+                    DrawBone(skel, Microsoft.Kinect.JointType.ShoulderCenter, Microsoft.Kinect.JointType.ShoulderRight);
+                    DrawBone(skel, Microsoft.Kinect.JointType.ShoulderCenter, Microsoft.Kinect.JointType.Spine);
+                    DrawBone(skel, Microsoft.Kinect.JointType.Spine, Microsoft.Kinect.JointType.HipCenter);
+                    DrawBone(skel, Microsoft.Kinect.JointType.HipCenter, Microsoft.Kinect.JointType.HipLeft);
+                    DrawBone(skel, Microsoft.Kinect.JointType.HipCenter, Microsoft.Kinect.JointType.HipRight);
+
+                    // Left Arm
+                    DrawBone(skel, Microsoft.Kinect.JointType.ShoulderLeft, Microsoft.Kinect.JointType.ElbowLeft);
+                    DrawBone(skel, Microsoft.Kinect.JointType.ElbowLeft, Microsoft.Kinect.JointType.WristLeft);
+                    DrawBone(skel, Microsoft.Kinect.JointType.WristLeft, Microsoft.Kinect.JointType.HandLeft);
+
+                    // Right Arm
+                    DrawBone(skel, Microsoft.Kinect.JointType.ShoulderRight, Microsoft.Kinect.JointType.ElbowRight);
+                    DrawBone(skel, Microsoft.Kinect.JointType.ElbowRight, Microsoft.Kinect.JointType.WristRight);
+                    DrawBone(skel, Microsoft.Kinect.JointType.WristRight, Microsoft.Kinect.JointType.HandRight);
+
+                    // Left Leg
+                    DrawBone(skel, Microsoft.Kinect.JointType.HipLeft, Microsoft.Kinect.JointType.KneeLeft);
+                    DrawBone(skel, Microsoft.Kinect.JointType.KneeLeft, Microsoft.Kinect.JointType.AnkleLeft);
+                    DrawBone(skel, Microsoft.Kinect.JointType.AnkleLeft, Microsoft.Kinect.JointType.FootLeft);
+
+                    // Right Leg
+                    DrawBone(skel, Microsoft.Kinect.JointType.HipRight, Microsoft.Kinect.JointType.KneeRight);
+                    DrawBone(skel, Microsoft.Kinect.JointType.KneeRight, Microsoft.Kinect.JointType.AnkleRight);
+                    DrawBone(skel, Microsoft.Kinect.JointType.AnkleRight, Microsoft.Kinect.JointType.FootRight);
+                }
+            }
+        }
+
+        public void DrawBone(Microsoft.Kinect.Skeleton skel, Microsoft.Kinect.JointType a, Microsoft.Kinect.JointType b)
+        {
+            var lh = skel.Joints[a].Position;
+            var rh = skel.Joints[b].Position;
+            GL.Begin(BeginMode.Lines);
+            GL.Color3(1f, 1f, 1f);
+            GL.Vertex3(new Vector3(1000 * lh.X, 1000 * lh.Y, 1000 * lh.Z));
+            GL.Vertex3(new Vector3(1000 * rh.X, 1000 * rh.Y, 1000 * rh.Z));
             GL.End();
         }
 
@@ -270,7 +287,7 @@ namespace Orchestra
         #region public static void Main()
 
         /// <summary>
-        /// Entry point of this example.
+        /// Entry point.
         /// </summary>
         [STAThread]
         public static void Main()
