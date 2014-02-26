@@ -47,6 +47,8 @@ namespace Orchestra
             SCENE,
             TEMPO
         }
+        bool render_skeleton;
+        bool render_tempo;
 
 		public MainWindow()
 		{
@@ -56,7 +58,11 @@ namespace Orchestra
             Keyboard.KeyDown += delegate(object sender, KeyboardKeyEventArgs e)
             {
                 if (e.Key == Key.Escape)
-                    this.Exit();
+                    Exit();
+                if (e.Key == Key.S)
+                    render_skeleton = !render_skeleton;
+                if (e.Key == Key.T)
+                    render_tempo = !render_tempo;
             };
 
             Resize += delegate(object sender, EventArgs e)
@@ -266,7 +272,7 @@ namespace Orchestra
 
         void RenderSkeleton(double dt)
         {
-            if (skeleton_frame == null) return;
+            if (skeleton_frame == null || !render_skeleton) return;
 
             GL.LineWidth(2);
             for (int i = 0; i < skeleton_frame.SkeletonArrayLength; ++i)
@@ -318,7 +324,7 @@ namespace Orchestra
 
         public void RenderTempo(double dt)
         {
-            if (skeleton == null) return;
+            if (skeleton == null || !render_tempo) return;
 
             GL.PointSize(4);
             GL.Color3(1f, 1f, 1f);
