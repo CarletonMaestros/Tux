@@ -41,7 +41,7 @@ namespace Orchestra
         double scam_theta, scam_y, scam_dtheta, scam_dy, scam_atheta;
 
         Microsoft.Kinect.SkeletonPoint last_hip, last_head;
-        float[] last_ys = new float[32];
+        double[] last_ys = new double[32];
         bool[] last_beats = new bool[32];
         bool decreasing;
 
@@ -459,7 +459,7 @@ namespace Orchestra
             GL.Begin(BeginMode.Points);
             for (int i = 0; i < last_ys.Length; ++i)
             {
-                GL.Vertex3(new Vector3(1000 * last_hip.X + 500 + 50 * (last_ys.Length - i), 1000 * (last_hip.Y + last_ys[i]), 1000 * last_hip.Z));
+                GL.Vertex3(new Vector3(1000 * last_hip.X + 500 + 50 * (last_ys.Length - i), 1000 * (last_hip.Y + (float)last_ys[i]), 1000 * last_hip.Z));
             }
             GL.End();
             GL.LineWidth(4);
@@ -468,8 +468,8 @@ namespace Orchestra
             {
                 if (last_beats[i])
                 {
-                    GL.Vertex3(new Vector3(1000 * last_hip.X + 500 + (last_beats.Length - i) * 50, 1000 * (last_hip.Y + last_ys[i]) + 500, 1000 * last_hip.Z));
-                    GL.Vertex3(new Vector3(1000 * last_hip.X + 500 + (last_beats.Length - i) * 50, 1000 * (last_hip.Y + last_ys[i]) - 500, 1000 * last_hip.Z));
+                    GL.Vertex3(new Vector3(1000 * last_hip.X + 500 + (last_beats.Length - i) * 50, 1000 * (last_hip.Y + (float)last_ys[i]) + 500, 1000 * last_hip.Z));
+                    GL.Vertex3(new Vector3(1000 * last_hip.X + 500 + (last_beats.Length - i) * 50, 1000 * (last_hip.Y + (float)last_ys[i]) - 500, 1000 * last_hip.Z));
                 }
             }
             GL.End();
@@ -488,18 +488,32 @@ namespace Orchestra
             GL.Begin(BeginMode.Points);
             for (int i = 0; i < last_ys.Length; ++i)
             {
-                GL.Vertex3(new Vector3(1000 * last_head.X - 750 + 50 * i, 1000 * (last_head.Y + last_ys[i]) + 1000, 1000 * last_head.Z));
+                GL.Vertex3(new Vector3(1000 * last_head.X - 750 + 50 * i, 1000 * (last_head.Y + (float)last_ys[i]) + 1000, 1000 * last_head.Z));
             }
             GL.End();
-            GL.LineWidth(4);
+            GL.LineWidth(1);
             GL.Begin(BeginMode.Lines);
             for (int i = 0; i < last_beats.Length; ++i)
             {
                 if (last_beats[i])
                 {
-                    GL.Vertex3(new Vector3(1000 * last_head.X - 750 + i * 50, 1000 * (last_head.Y + last_ys[i]) + 1500, 1000 * last_head.Z));
-                    GL.Vertex3(new Vector3(1000 * last_head.X - 750 + i * 50, 1000 * (last_head.Y + last_ys[i]) + 500, 1000 * last_head.Z));
+                    GL.Vertex3(new Vector3(1000 * last_head.X - 750 + i * 50, 1000 * (last_head.Y + (float)last_ys[i]) + 1500, 1000 * last_head.Z));
+                    GL.Vertex3(new Vector3(1000 * last_head.X - 750 + i * 50, 1000 * (last_head.Y + (float)last_ys[i]) + 500, 1000 * last_head.Z));
                 }
+            }
+            GL.End();
+            GL.LineWidth(4);
+            GL.Begin(BeginMode.LineStrip);
+            float a = (float)(MathNet.Numerics.Statistics.Statistics.StandardDeviation(last_ys) / Math.Sqrt(Math.PI));
+            float b = (float)MathNet.Numerics.Statistics.Statistics.Mean(last_ys);
+            int p = 0;
+            for (int i = 1; i < last_ys.Length; ++i)
+            {
+                if (last_ys[i] < last_ys[p]) p = i;
+            }
+            for (int i = 0; i < last_beats.Length * 10; ++i)
+            {
+                GL.Vertex3(new Vector3(1000 * last_head.X - 750 + i * 5, 1000 * (last_head.Y + 2*a*(float)Math.Sin((i-10*p)/10f) + b) + 1000, 1000 * last_head.Z));
             }
             GL.End();
         }
