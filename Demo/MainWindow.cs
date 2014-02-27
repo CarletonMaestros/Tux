@@ -55,6 +55,7 @@ namespace Orchestra
         }
         CAM_FOCUS cam_focus = CAM_FOCUS.SCENE;
         bool render_skeleton, render_tempo, render_fft;
+        int fft_slide = 0;
 
         #region MainWindow()
 
@@ -77,8 +78,8 @@ namespace Orchestra
                     if (!shift_down) { render_tempo = true; cam_focus = CAM_FOCUS.TEMPO; }
                     else { render_tempo = false; if (cam_focus == CAM_FOCUS.TEMPO) cam_focus = CAM_FOCUS.SCENE; }
                 if (e.Key == Key.F)
-                    if (!shift_down) { render_fft = true; cam_focus = CAM_FOCUS.FFT; }
-                    else { render_fft = false; if (cam_focus == CAM_FOCUS.FFT) cam_focus = CAM_FOCUS.SCENE; }
+                    if (!shift_down) { render_fft = true; fft_slide++; cam_focus = CAM_FOCUS.FFT; }
+                    else { render_fft = false; fft_slide = 0; if (cam_focus == CAM_FOCUS.FFT) cam_focus = CAM_FOCUS.SCENE; }
                 if (e.Key == Key.Space)
                     cam_focus = CAM_FOCUS.SCENE;
             };
@@ -126,7 +127,7 @@ namespace Orchestra
                 {
                     if (depth_image_update && depth_image_new != null) depth_image_new.Dispose();
                     depth_image_new = e.OpenDepthImageFrame();
-                    if (depth_image_new != null) depth_image_update = true;
+                    depth_image_update = depth_image_new != null;
                 }
             };
             kinect.SkeletonFrameReady += delegate(object sender, Microsoft.Kinect.SkeletonFrameReadyEventArgs e)
@@ -135,7 +136,7 @@ namespace Orchestra
                 {
                     if (skeleton_update && skeleton_frame_new != null) skeleton_frame_new.Dispose();
                     skeleton_frame_new = e.OpenSkeletonFrame();
-                    if (skeleton_frame_new != null) skeleton_update = true;
+                    skeleton_update = skeleton_frame_new != null;
                 }
             };
             kinect.Start();
@@ -494,19 +495,17 @@ namespace Orchestra
                 GL.Vertex3(new Vector3(1000 * last_head.X - 750 + 50 * i, 1000 * (last_head.Y + (float)last_ys[i]) + 1000, 1000 * last_head.Z));
             }
             GL.End();
-            GL.LineWidth(4);
-            GL.Begin(BeginMode.Lines);
-            for (int i = 0; i < last_beats.Length; ++i)
-            {
-                if (last_beats[i])
-                {
-                    GL.Vertex3(new Vector3(1000 * last_head.X - 750 + i * 50, 1000 * (last_head.Y + (float)last_ys[i]) + 1500, 1000 * last_head.Z));
-                    GL.Vertex3(new Vector3(1000 * last_head.X - 750 + i * 50, 1000 * (last_head.Y + (float)last_ys[i]) + 500, 1000 * last_head.Z));
-                }
-            }
-            GL.End();
-            GL.LineWidth(2);
-            GL.Begin(BeginMode.LineStrip);
+            //GL.LineWidth(4);
+            //GL.Begin(BeginMode.Lines);
+            //for (int i = 0; i < last_beats.Length; ++i)
+            //{
+            //    if (last_beats[i])
+            //    {
+            //        GL.Vertex3(new Vector3(1000 * last_head.X - 750 + i * 50, 1000 * (last_head.Y + (float)last_ys[i]) + 1500, 1000 * last_head.Z));
+            //        GL.Vertex3(new Vector3(1000 * last_head.X - 750 + i * 50, 1000 * (last_head.Y + (float)last_ys[i]) + 500, 1000 * last_head.Z));
+            //    }
+            //}
+            //GL.End();
             float a = (float)(MathNet.Numerics.Statistics.Statistics.StandardDeviation(last_ys) / Math.Sqrt(Math.PI));
             float b = (float)MathNet.Numerics.Statistics.Statistics.Mean(last_ys);
             Complex[] ys = new Complex[last_ys.Length];
@@ -532,12 +531,19 @@ namespace Orchestra
                 double err = 0;
                 for (int j = 0; j < last_ys.Length; ++j)
                 {
-                    double er = -2*a*Math.Cos((j/10f-p)/last_ys.Length*(f0-0.5+i/100d)*2*Math.PI) + b - last_ys[j];
-                    err += er;
+                    if (last_ys[j] != last_ys[j]) continue;
+                    double er = -2*a*Math.Cos((j-p)/last_ys.Length*(f0-0.5+i/100d)*2*Math.PI) + b - last_ys[j];
+                    err += er * er;
                 }
                 if (err < minerr) { minerr = err; mini = i; }
             }
             float f = f0 - 0.5f + mini/100f;
+            if (fft_slide < 2) a = 0.25f;
+            if (fft_slide < 3) b = 0;
+            if (fft_slide < 4) p = 0;
+            if (fft_slide < 5) f = f0;
+            GL.LineWidth(2);
+            GL.Begin(BeginMode.LineStrip);
             for (int i = 0; i < last_ys.Length * 10; ++i)
             {
                 GL.Vertex3(new Vector3(1000 * last_head.X - 750 + i * 5, 1000 * (last_head.Y - 2*a*(float)Math.Cos((i/10f-p)/last_ys.Length*f*2*(float)Math.PI) + b) + 1000, 1000 * last_head.Z));
