@@ -73,11 +73,11 @@ namespace Orchestra
                     if (!shift_down) { render_skeleton = true; cam_focus = CAM_FOCUS.SKELETON; }
                     else { render_skeleton = false; if (cam_focus == CAM_FOCUS.SKELETON) cam_focus = CAM_FOCUS.SCENE; }
                 if (e.Key == Key.T)
-                    if (!shift_down) { render_tempo = true; render_fft = false; cam_focus = CAM_FOCUS.TEMPO; }
+                    if (!shift_down) { render_tempo = true; cam_focus = CAM_FOCUS.TEMPO; }
                     else { render_tempo = false; if (cam_focus == CAM_FOCUS.TEMPO) cam_focus = CAM_FOCUS.SCENE; }
                 if (e.Key == Key.F)
-                    if (!shift_down) { render_fft = true; render_tempo = false; cam_focus = CAM_FOCUS.FFT; }
-                    else { render_tempo = false; if (cam_focus == CAM_FOCUS.FFT) cam_focus = CAM_FOCUS.SCENE; }
+                    if (!shift_down) { render_fft = true; cam_focus = CAM_FOCUS.FFT; }
+                    else { render_fft = false; if (cam_focus == CAM_FOCUS.FFT) cam_focus = CAM_FOCUS.SCENE; }
                 if (e.Key == Key.Space)
                     cam_focus = CAM_FOCUS.SCENE;
             };
@@ -378,7 +378,7 @@ namespace Orchestra
             int h = depth_image.Height;
             int hw = w / 2;
             int hh = h / 2;
-            for (int i = 0; i < depth_image.PixelDataLength; i += 5)
+            for (int i = 0; i < depth_image.PixelDataLength; i += 7)
             {
                 int x = i % w - hw;
                 int y = hh - i / w;
@@ -459,6 +459,7 @@ namespace Orchestra
             GL.Begin(BeginMode.Points);
             for (int i = 0; i < last_ys.Length; ++i)
             {
+                if (last_ys[i] != last_ys[i]) continue;
                 GL.Vertex3(new Vector3(1000 * last_hip.X + 500 + 50 * (last_ys.Length - i), 1000 * (last_hip.Y + (float)last_ys[i]), 1000 * last_hip.Z));
             }
             GL.End();
@@ -488,10 +489,11 @@ namespace Orchestra
             GL.Begin(BeginMode.Points);
             for (int i = 0; i < last_ys.Length; ++i)
             {
+                if (last_ys[i] != last_ys[i]) continue;
                 GL.Vertex3(new Vector3(1000 * last_head.X - 750 + 50 * i, 1000 * (last_head.Y + (float)last_ys[i]) + 1000, 1000 * last_head.Z));
             }
             GL.End();
-            GL.LineWidth(1);
+            GL.LineWidth(4);
             GL.Begin(BeginMode.Lines);
             for (int i = 0; i < last_beats.Length; ++i)
             {
@@ -502,7 +504,7 @@ namespace Orchestra
                 }
             }
             GL.End();
-            GL.LineWidth(4);
+            GL.LineWidth(2);
             GL.Begin(BeginMode.LineStrip);
             float a = (float)(MathNet.Numerics.Statistics.Statistics.StandardDeviation(last_ys) / Math.Sqrt(Math.PI));
             float b = (float)MathNet.Numerics.Statistics.Statistics.Mean(last_ys);
