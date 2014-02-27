@@ -26,7 +26,7 @@ namespace Orchestra
         int viewport_width, viewport_height;
 
         Microsoft.Kinect.KinectSensor kinect;
-        bool depth_image_update, skeleton_update;
+        bool depth_image_update = false, skeleton_update = false;
         Microsoft.Kinect.DepthImageFrame depth_image, depth_image_new;
         Microsoft.Kinect.SkeletonFrame skeleton_frame, skeleton_frame_new;
         Microsoft.Kinect.Skeleton[] skeletons;
@@ -34,6 +34,7 @@ namespace Orchestra
         double last_skeleton_time;
 
         double time;
+        float cam_speed;
         Vector3 cam_pos, cam_tpos, cam_dpos;
         Vector3 cam_sub, cam_tsub, cam_dsub;
         double scam_theta, scam_y, scam_dtheta, scam_dy, scam_atheta;
@@ -50,7 +51,7 @@ namespace Orchestra
         }
         CAM_FOCUS cam_focus = CAM_FOCUS.SCENE;
         bool render_skeleton = true;
-        bool render_tempo = true;
+        bool render_tempo = false;
 
         public MainWindow()
         {
@@ -64,7 +65,9 @@ namespace Orchestra
                 if (e.Key == Key.S)
                     render_skeleton = !render_skeleton;
                 if (e.Key == Key.T)
-                    render_tempo = !render_tempo;
+                    if (!render_tempo) { render_tempo = true; cam_focus = CAM_FOCUS.TEMPO; }
+                    else if (cam_focus == CAM_FOCUS.TEMPO) cam_focus = CAM_FOCUS.SCENE;
+                    else render_tempo = false;
             };
 
             Resize += delegate(object sender, EventArgs e)
@@ -97,7 +100,7 @@ namespace Orchestra
                 {
                     if (depth_image_update && depth_image_new != null) depth_image_new.Dispose();
                     depth_image_new = e.OpenDepthImageFrame();
-                    depth_image_update = true;
+                    if (depth_image_new != null) depth_image_update = true;
                 }
             };
             kinect.SkeletonFrameReady += delegate(object sender, Microsoft.Kinect.SkeletonFrameReadyEventArgs e)
@@ -106,7 +109,7 @@ namespace Orchestra
                 {
                     if (skeleton_update && skeleton_frame_new != null) skeleton_frame_new.Dispose();
                     skeleton_frame_new = e.OpenSkeletonFrame();
-                    skeleton_update = true;
+                    if (skeleton_frame_new != null) skeleton_update = true;
                 }
             };
             kinect.Start();
@@ -282,20 +285,31 @@ namespace Orchestra
 
             if (cam_focus == CAM_FOCUS.SCENE)
             {
-                float focus = 2000f;
-                float distance = 8000f;
-                float height = 2000f;
-                scam_atheta += (0.5 - rand.NextDouble()) / 10 - scam_atheta / 100 - scam_dtheta / 1000;
-                scam_dtheta += scam_atheta / 10;
-                scam_dy += 1000 * rand.NextDouble() - scam_y / 2;
-                scam_theta += scam_dtheta / 500;
-                scam_y += scam_dy / 10000;
-                cam_tpos = new Vector3((float)(distance * Math.Cos(scam_theta)), (float)scam_y + height, (float)(focus + distance * Math.Sin(scam_theta)));
+                float focus = 2000;
+                float distance = 8000;
+                float height = 2000;
+                cam_speed = 1;
+                scam_theta += (float)(dt) / (0.5-rand.NextDouble()) / 10;
+                cam_tpos = new Vector3((float)(distance * Math.Cos(scam_theta)), (float)height, (float)(focus + distance * Math.Sin(scam_theta)));
                 cam_tsub = new Vector3(0, 0, focus);
             }
+            else if (cam_focus == CAM_FOCUS.TEMPO)
+            {
+                float height = 1000;
+                float distance = 4000;
+                cam_speed = 50;
+                cam_tsub = new Vector3(last_hip.X * 1000 + 1250, last_hip.Y * 1000 + 500, last_hip.Z * 1000);
+                cam_tpos = cam_tsub + new Vector3(0, height, -distance);
+            }
 
-            cam_pos = cam_tpos;
-            cam_sub = cam_tsub;
+            Vector3 dp = cam_tpos - cam_pos;
+            cam_dpos += (float)(dt) * cam_speed * ((dp + dp / dp.Length * 20 * (float)Math.Sqrt(dp.Length)) / 10 - cam_dpos / 10);
+            cam_pos += (float)(dt) * cam_dpos;
+            Vector3 ds = cam_tsub - cam_sub;
+            cam_dsub += (float)(dt) * cam_speed * ((ds + ds / ds.Length * 20 * (float)Math.Sqrt(ds.Length)) / 10 - cam_dsub / 10);
+            cam_sub += (float)(dt) * cam_dsub;
+            //cam_pos = cam_tpos;
+            //cam_sub = cam_tsub;
 
             Matrix4 modelview = Matrix4.LookAt(cam_pos, cam_sub, Vector3.UnitY);
             GL.MatrixMode(MatrixMode.Modelview);
