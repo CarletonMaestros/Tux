@@ -15,7 +15,7 @@ namespace Orchestra
     /// Note that all OpenGL function calls should take place at the rendering thread -
     /// OpenGL will not be available on the main thread at all!
     /// </summary>
-	public class MainWindow : GameWindow
+    public class MainWindow : GameWindow
     {
         Random rand = new Random();
         Thread rendering_thread;
@@ -33,9 +33,9 @@ namespace Orchestra
         Microsoft.Kinect.Skeleton skeleton;
         double last_skeleton_time;
 
-		double time;
-		Vector3 cam_pos, cam_tpos, cam_dpos;
-		Vector3 cam_sub, cam_tsub, cam_dsub;
+        double time;
+        Vector3 cam_pos, cam_tpos, cam_dpos;
+        Vector3 cam_sub, cam_tsub, cam_dsub;
         double scam_theta, scam_y, scam_dtheta, scam_dy, scam_atheta;
 
         Microsoft.Kinect.SkeletonPoint last_hip;
@@ -47,13 +47,13 @@ namespace Orchestra
         {
             SCENE,
             TEMPO
-		}
-		CAM_FOCUS cam_focus = CAM_FOCUS.SCENE;
+        }
+        CAM_FOCUS cam_focus = CAM_FOCUS.SCENE;
         bool render_skeleton = true;
         bool render_tempo = true;
 
-		public MainWindow()
-		{
+        public MainWindow()
+        {
             WindowState = WindowState.Fullscreen;
             CursorVisible = false;
 
@@ -159,11 +159,11 @@ namespace Orchestra
 
             while (!exit)
             {
-				Update(Math.Min(.1, update_watch.Elapsed.TotalSeconds));
+                Update(Math.Min(.1, update_watch.Elapsed.TotalSeconds));
                 update_watch.Reset();
                 update_watch.Start();
 
-				Render(Math.Min(.1, render_watch.Elapsed.TotalSeconds));
+                Render(Math.Min(.1, render_watch.Elapsed.TotalSeconds));
                 render_watch.Reset(); //  Stopwatch may be inaccurate over larger intervals.
                 render_watch.Start(); // Plus, timekeeping is easier if we always start counting from 0.
 
@@ -262,15 +262,15 @@ namespace Orchestra
             RenderPointCloud(dt);
             RenderSkeleton(dt);
             RenderTempo(dt);
-		}
+        }
 
-		#endregion
+        #endregion
 
-		#region Camera
+        #region Camera
 
         void PositionCamera(double dt)
         {
-			// Update viewport
+            // Update viewport
             lock (update_lock)
             {
                 Matrix4 projection = Matrix4.CreatePerspectiveFieldOfView((float)Math.PI / 4, (float)(viewport_width / viewport_height), 1f, 100000f);
@@ -278,31 +278,31 @@ namespace Orchestra
                 GL.LoadMatrix(ref projection);
             }
 
-			if (cam_focus == CAM_FOCUS.SCENE)
-			{
-				float focus = 2000f;
-				float distance = 8000f;
-				float height = 2000f;
-				scam_atheta += (0.5 - rand.NextDouble()) / 10 - scam_atheta / 100 - scam_dtheta / 1000;
-				scam_dtheta += scam_atheta / 10;
-				scam_dy += 1000 * rand.NextDouble() - scam_y / 2;
-				scam_theta += scam_dtheta / 500;
-				scam_y += scam_dy / 10000;
-				cam_tpos = new Vector3((float)(distance * Math.Cos(scam_theta)), (float)scam_y + height, (float)(focus + distance * Math.Sin(scam_theta)));
-				cam_tsub = new Vector3(0, 0, focus);
-			}
+            if (cam_focus == CAM_FOCUS.SCENE)
+            {
+                float focus = 2000f;
+                float distance = 8000f;
+                float height = 2000f;
+                scam_atheta += (0.5 - rand.NextDouble()) / 10 - scam_atheta / 100 - scam_dtheta / 1000;
+                scam_dtheta += scam_atheta / 10;
+                scam_dy += 1000 * rand.NextDouble() - scam_y / 2;
+                scam_theta += scam_dtheta / 500;
+                scam_y += scam_dy / 10000;
+                cam_tpos = new Vector3((float)(distance * Math.Cos(scam_theta)), (float)scam_y + height, (float)(focus + distance * Math.Sin(scam_theta)));
+                cam_tsub = new Vector3(0, 0, focus);
+            }
 
-			cam_pos = cam_tpos;
-			cam_sub = cam_tsub;
+            cam_pos = cam_tpos;
+            cam_sub = cam_tsub;
 
-			Matrix4 modelview = Matrix4.LookAt(cam_pos, cam_sub, Vector3.UnitY);
-			GL.MatrixMode(MatrixMode.Modelview);
-			GL.LoadMatrix(ref modelview);
-		}
+            Matrix4 modelview = Matrix4.LookAt(cam_pos, cam_sub, Vector3.UnitY);
+            GL.MatrixMode(MatrixMode.Modelview);
+            GL.LoadMatrix(ref modelview);
+        }
 
-		#endregion
+        #endregion
 
-		#region PointCloud
+        #region PointCloud
 
         void RenderPointCloud(double dt)
         {
@@ -312,23 +312,23 @@ namespace Orchestra
             GL.Color3(1f, 1f, 1f);
             GL.Begin(BeginMode.Points);
             var pixels = depth_image.GetRawPixelData();
-			int w = depth_image.Width;
-			int h = depth_image.Height;
-			int hw = w / 2;
-			int hh = h / 2;
+            int w = depth_image.Width;
+            int h = depth_image.Height;
+            int hw = w / 2;
+            int hh = h / 2;
             for (int i = 0; i < depth_image.PixelDataLength; i += 5)
             {
-				int x = i % w - hw;
-				int y = hh - i / w;
+                int x = i % w - hw;
+                int y = hh - i / w;
                 int z = pixels[i].Depth;
                 GL.Vertex3(x*z/500, y*z/500, z);
             }
             GL.End();
-		}
+        }
 
-		#endregion
+        #endregion
 
-		#region Skeleton
+        #region Skeleton
 
         void RenderSkeleton(double dt)
         {
@@ -382,11 +382,11 @@ namespace Orchestra
             var rh = skel.Joints[b].Position;
             GL.Vertex3(new Vector3(1000 * lh.X, 1000 * lh.Y, 1000 * lh.Z));
             GL.Vertex3(new Vector3(1000 * rh.X, 1000 * rh.Y, 1000 * rh.Z));
-		}
+        }
 
-		#endregion
+        #endregion
 
-		#region Tempo
+        #region Tempo
 
         public void RenderTempo(double dt)
         {
@@ -415,7 +415,7 @@ namespace Orchestra
 
         #endregion
 
-		#region Main
+        #region Main
 
         /// <summary>
         /// Entry point.
@@ -423,9 +423,9 @@ namespace Orchestra
         [STAThread]
         public static void Main()
         {
-			using (GameWindow window = new MainWindow())
+            using (GameWindow window = new MainWindow())
             {
-				window.Run();
+                window.Run();
             }
         }
 
