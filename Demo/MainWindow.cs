@@ -21,6 +21,7 @@ namespace Orchestra
         Thread rendering_thread;
         object update_lock = new object();
         bool exit = false;
+        bool shift_down;
 
         bool viewport_changed = true;
         int viewport_width, viewport_height;
@@ -47,27 +48,42 @@ namespace Orchestra
         enum CAM_FOCUS
         {
             SCENE,
-            TEMPO
+            SKELETON,
+            TEMPO,
+            FFT,
         }
         CAM_FOCUS cam_focus = CAM_FOCUS.SCENE;
         bool render_skeleton = true;
         bool render_tempo = false;
 
+        #region MainWindow()
+
         public MainWindow()
         {
             WindowState = WindowState.Fullscreen;
             CursorVisible = false;
+            InitKinect();
 
             Keyboard.KeyDown += delegate(object sender, KeyboardKeyEventArgs e)
             {
+                if (e.Key == Key.LShift || e.Key == Key.RShift)
+                    shift_down = true;
                 if (e.Key == Key.Escape)
                     Exit();
                 if (e.Key == Key.S)
-                    render_skeleton = !render_skeleton;
+                    if (!shift_down) { render_skeleton = true; cam_focus = CAM_FOCUS.SKELETON; }
+                    else { render_skeleton = false; if (cam_focus == CAM_FOCUS.SKELETON) cam_focus = CAM_FOCUS.SCENE; }
                 if (e.Key == Key.T)
-                    if (!render_tempo) { render_tempo = true; cam_focus = CAM_FOCUS.TEMPO; }
-                    else if (cam_focus == CAM_FOCUS.TEMPO) cam_focus = CAM_FOCUS.SCENE;
-                    else render_tempo = false;
+                    if (!shift_down) { render_tempo = true; cam_focus = CAM_FOCUS.TEMPO; }
+                    else { render_tempo = false; if (cam_focus == CAM_FOCUS.TEMPO) cam_focus = CAM_FOCUS.SCENE; }
+                if (e.Key == Key.Space)
+                    cam_focus = CAM_FOCUS.SCENE;
+            };
+
+            Keyboard.KeyUp += delegate(object sender, KeyboardKeyEventArgs e)
+            {
+                if (e.Key == Key.LShift || e.Key == Key.RShift)
+                    shift_down = false;
             };
 
             Resize += delegate(object sender, EventArgs e)
@@ -81,7 +97,14 @@ namespace Orchestra
                     viewport_height = Height;
                 }
             };
+        }
 
+        #endregion
+
+        #region InitKinect
+
+        public void InitKinect()
+        {
             foreach (var sensor in Microsoft.Kinect.KinectSensor.KinectSensors)
             {
                 if (sensor.Status == Microsoft.Kinect.KinectStatus.Connected)
@@ -114,6 +137,8 @@ namespace Orchestra
             };
             kinect.Start();
         }
+
+        #endregion
 
         #region OnLoad
 
@@ -293,7 +318,15 @@ namespace Orchestra
                 cam_tpos = new Vector3((float)(distance * Math.Cos(scam_theta)), (float)height, (float)(focus + distance * Math.Sin(scam_theta)));
                 cam_tsub = new Vector3(0, 0, focus);
             }
-            else if (cam_focus == CAM_FOCUS.TEMPO)
+            else if (cam_focus == CAM_FOCUS.SKELETON)
+            {
+                float height = 1000;
+                float distance = 4000;
+                cam_speed = 50;
+                cam_tsub = new Vector3(last_hip.X * 1000, last_hip.Y * 1000 + 500, last_hip.Z * 1000);
+                cam_tpos = cam_tsub + new Vector3(0, height, -distance);
+            }
+            else if (cam_focus == CAM_FOCUS.TEMPO || cam_focus == CAM_FOCUS.FFT)
             {
                 float height = 1000;
                 float distance = 4000;
