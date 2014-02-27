@@ -95,6 +95,7 @@ namespace Orchestra
             {
                 lock (update_lock)
                 {
+                    if (depth_image_update && depth_image_new != null) depth_image_new.Dispose();
                     depth_image_new = e.OpenDepthImageFrame();
                     depth_image_update = true;
                 }
@@ -103,6 +104,7 @@ namespace Orchestra
             {
                 lock (update_lock)
                 {
+                    if (skeleton_update && skeleton_frame_new != null) skeleton_frame_new.Dispose();
                     skeleton_frame_new = e.OpenSkeletonFrame();
                     skeleton_update = true;
                 }
