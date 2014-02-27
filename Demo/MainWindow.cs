@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Numerics;
 using System.Threading;
 
 using OpenTK;
@@ -508,14 +509,38 @@ namespace Orchestra
             GL.Begin(BeginMode.LineStrip);
             float a = (float)(MathNet.Numerics.Statistics.Statistics.StandardDeviation(last_ys) / Math.Sqrt(Math.PI));
             float b = (float)MathNet.Numerics.Statistics.Statistics.Mean(last_ys);
+            Complex[] ys = new Complex[last_ys.Length];
+            for (int i = 0; i < last_ys.Length; ++i)
+            {
+                ys[i] = last_ys[i];
+            }
+            MathNet.Numerics.IntegralTransforms.Transform.FourierForward(ys);
+            int f0 = 1;
+            for (int i = 2; i < ys.Length / 2; ++i)
+            {
+                if (ys[i].Magnitude > ys[f0].Magnitude) f0 = i;
+            }
             int p = 0;
             for (int i = 1; i < last_ys.Length; ++i)
             {
                 if (last_ys[i] < last_ys[p]) p = i;
             }
-            for (int i = 0; i < last_beats.Length * 10; ++i)
+            double minerr = double.MaxValue;
+            int mini = 0;
+            for (int i = 0; i <= 100; ++i)
             {
-                GL.Vertex3(new Vector3(1000 * last_head.X - 750 + i * 5, 1000 * (last_head.Y + 2*a*(float)Math.Sin((i-10*p)/10f) + b) + 1000, 1000 * last_head.Z));
+                double err = 0;
+                for (int j = 0; j < last_ys.Length; ++j)
+                {
+                    double er = -2*a*Math.Cos((j/10f-p)/last_ys.Length*(f0-0.5+i/100d)*2*Math.PI) + b - last_ys[j];
+                    err += er;
+                }
+                if (err < minerr) { minerr = err; mini = i; }
+            }
+            float f = f0 - 0.5f + mini/100f;
+            for (int i = 0; i < last_ys.Length * 10; ++i)
+            {
+                GL.Vertex3(new Vector3(1000 * last_head.X - 750 + i * 5, 1000 * (last_head.Y - 2*a*(float)Math.Cos((i/10f-p)/last_ys.Length*f*2*(float)Math.PI) + b) + 1000, 1000 * last_head.Z));
             }
             GL.End();
         }
