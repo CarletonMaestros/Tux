@@ -18,7 +18,6 @@ namespace Orchestra
 	public class MainWindow : GameWindow
     {
         Random rand = new Random();
-
         Thread rendering_thread;
         object update_lock = new object();
         bool exit = false;
@@ -34,11 +33,10 @@ namespace Orchestra
         Microsoft.Kinect.Skeleton skeleton;
         double last_skeleton_time;
 
-        double time;
-        Vector3 camera_pos;
-        Vector3 camera_vel;
-        double cam_theta, cam_y, cam_dtheta, cam_dy, cam_atheta;
-        CAM_FOCUS cam_focus = CAM_FOCUS.SCENE;
+		double time;
+		Vector3 cam_pos, cam_tpos, cam_dpos;
+		Vector3 cam_sub, cam_tsub, cam_dsub;
+        double scam_theta, scam_y, scam_dtheta, scam_dy, scam_atheta;
 
         Microsoft.Kinect.SkeletonPoint last_hip;
         float[] last_ys = new float[32];
@@ -49,7 +47,8 @@ namespace Orchestra
         {
             SCENE,
             TEMPO
-        }
+		}
+		CAM_FOCUS cam_focus = CAM_FOCUS.SCENE;
         bool render_skeleton = true;
         bool render_tempo = true;
 
@@ -160,11 +159,11 @@ namespace Orchestra
 
             while (!exit)
             {
-                Update(update_watch.Elapsed.TotalSeconds);
+				Update(Math.Min(.1, update_watch.Elapsed.TotalSeconds));
                 update_watch.Reset();
                 update_watch.Start();
 
-                Render(render_watch.Elapsed.TotalSeconds);
+				Render(Math.Min(.1, render_watch.Elapsed.TotalSeconds));
                 render_watch.Reset(); //  Stopwatch may be inaccurate over larger intervals.
                 render_watch.Start(); // Plus, timekeeping is easier if we always start counting from 0.
 
@@ -263,10 +262,15 @@ namespace Orchestra
             RenderPointCloud(dt);
             RenderSkeleton(dt);
             RenderTempo(dt);
-        }
+		}
+
+		#endregion
+
+		#region Camera
 
         void PositionCamera(double dt)
         {
+			// Update viewport
             lock (update_lock)
             {
                 Matrix4 projection = Matrix4.CreatePerspectiveFieldOfView((float)Math.PI / 4, (float)(viewport_width / viewport_height), 1f, 100000f);
@@ -274,19 +278,31 @@ namespace Orchestra
                 GL.LoadMatrix(ref projection);
             }
 
-            float focus = 2000f;
-            float distance = 8000f;
-            float height = 2000f;
-            cam_atheta += (0.5 - rand.NextDouble()) / 10 - cam_atheta / 100 - cam_dtheta / 1000;
-            cam_dtheta += cam_atheta / 10;
-            cam_dy += 1000 * rand.NextDouble() - cam_y / 2;
-            cam_theta += cam_dtheta / 500;
-            cam_y += cam_dy / 10000;
-            Vector3 camera_pos = new Vector3((float)(distance * Math.Cos(cam_theta)), (float)cam_y + height, (float)(focus + distance * Math.Sin(cam_theta)));
-            Matrix4 modelview = Matrix4.LookAt(camera_pos, new Vector3(0, 0, focus), Vector3.UnitY);
-            GL.MatrixMode(MatrixMode.Modelview);
-            GL.LoadMatrix(ref modelview);
-        }
+			if (cam_focus == CAM_FOCUS.SCENE)
+			{
+				float focus = 2000f;
+				float distance = 8000f;
+				float height = 2000f;
+				scam_atheta += (0.5 - rand.NextDouble()) / 10 - scam_atheta / 100 - scam_dtheta / 1000;
+				scam_dtheta += scam_atheta / 10;
+				scam_dy += 1000 * rand.NextDouble() - scam_y / 2;
+				scam_theta += scam_dtheta / 500;
+				scam_y += scam_dy / 10000;
+				cam_tpos = new Vector3((float)(distance * Math.Cos(scam_theta)), (float)scam_y + height, (float)(focus + distance * Math.Sin(scam_theta)));
+				cam_tsub = new Vector3(0, 0, focus);
+			}
+
+			cam_pos = cam_tpos;
+			cam_sub = cam_tsub;
+
+			Matrix4 modelview = Matrix4.LookAt(cam_pos, cam_sub, Vector3.UnitY);
+			GL.MatrixMode(MatrixMode.Modelview);
+			GL.LoadMatrix(ref modelview);
+		}
+
+		#endregion
+
+		#region PointCloud
 
         void RenderPointCloud(double dt)
         {
@@ -296,15 +312,23 @@ namespace Orchestra
             GL.Color3(1f, 1f, 1f);
             GL.Begin(BeginMode.Points);
             var pixels = depth_image.GetRawPixelData();
+			int w = depth_image.Width;
+			int h = depth_image.Height;
+			int hw = w / 2;
+			int hh = h / 2;
             for (int i = 0; i < depth_image.PixelDataLength; i += 5)
             {
-                int x = i % depth_image.Width - depth_image.Width / 2;
-                int y = -(i / depth_image.Width - depth_image.Height / 2);
+				int x = i % w - hw;
+				int y = hh - i / w;
                 int z = pixels[i].Depth;
                 GL.Vertex3(x*z/500, y*z/500, z);
             }
             GL.End();
-        }
+		}
+
+		#endregion
+
+		#region Skeleton
 
         void RenderSkeleton(double dt)
         {
@@ -358,7 +382,11 @@ namespace Orchestra
             var rh = skel.Joints[b].Position;
             GL.Vertex3(new Vector3(1000 * lh.X, 1000 * lh.Y, 1000 * lh.Z));
             GL.Vertex3(new Vector3(1000 * rh.X, 1000 * rh.Y, 1000 * rh.Z));
-        }
+		}
+
+		#endregion
+
+		#region Tempo
 
         public void RenderTempo(double dt)
         {
@@ -387,7 +415,7 @@ namespace Orchestra
 
         #endregion
 
-        #region public static void Main()
+		#region Main
 
         /// <summary>
         /// Entry point.
