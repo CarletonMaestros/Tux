@@ -40,7 +40,7 @@ namespace Orchestra
         Vector3 cam_sub, cam_tsub, cam_dsub;
         double scam_theta, scam_y, scam_dtheta, scam_dy, scam_atheta;
 
-        Microsoft.Kinect.SkeletonPoint last_hip;
+        Microsoft.Kinect.SkeletonPoint last_hip, last_head;
         float[] last_ys = new float[32];
         bool[] last_beats = new bool[32];
         bool decreasing;
@@ -53,8 +53,7 @@ namespace Orchestra
             FFT,
         }
         CAM_FOCUS cam_focus = CAM_FOCUS.SCENE;
-        bool render_skeleton = true;
-        bool render_tempo = false;
+        bool render_skeleton, render_tempo, render_fft;
 
         #region MainWindow()
 
@@ -74,8 +73,11 @@ namespace Orchestra
                     if (!shift_down) { render_skeleton = true; cam_focus = CAM_FOCUS.SKELETON; }
                     else { render_skeleton = false; if (cam_focus == CAM_FOCUS.SKELETON) cam_focus = CAM_FOCUS.SCENE; }
                 if (e.Key == Key.T)
-                    if (!shift_down) { render_tempo = true; cam_focus = CAM_FOCUS.TEMPO; }
+                    if (!shift_down) { render_tempo = true; render_fft = false; cam_focus = CAM_FOCUS.TEMPO; }
                     else { render_tempo = false; if (cam_focus == CAM_FOCUS.TEMPO) cam_focus = CAM_FOCUS.SCENE; }
+                if (e.Key == Key.F)
+                    if (!shift_down) { render_fft = true; render_tempo = false; cam_focus = CAM_FOCUS.FFT; }
+                    else { render_tempo = false; if (cam_focus == CAM_FOCUS.FFT) cam_focus = CAM_FOCUS.SCENE; }
                 if (e.Key == Key.Space)
                     cam_focus = CAM_FOCUS.SCENE;
             };
@@ -251,6 +253,8 @@ namespace Orchestra
                             last_ys[last_ys.Length - 1] = float.NaN;
                         if (skeleton != null && skeleton.Joints[Microsoft.Kinect.JointType.HipCenter].TrackingState != Microsoft.Kinect.JointTrackingState.NotTracked)
                             last_hip = skeleton.Joints[Microsoft.Kinect.JointType.HipCenter].Position;
+                        if (skeleton != null && skeleton.Joints[Microsoft.Kinect.JointType.Head].TrackingState != Microsoft.Kinect.JointTrackingState.NotTracked)
+                            last_head = skeleton.Joints[Microsoft.Kinect.JointType.Head].Position;
                         for (int i = 0; i < last_beats.Length - 1; ++i)
                             last_beats[i] = last_beats[i + 1];
                         if (decreasing && last_ys[last_ys.Length - 3] < last_ys[last_ys.Length - 2] && last_ys[last_ys.Length - 2] < last_ys[last_ys.Length - 1])
@@ -292,6 +296,7 @@ namespace Orchestra
             RenderPointCloud(dt);
             RenderSkeleton(dt);
             RenderTempo(dt);
+            RenderFFT(dt);
         }
 
         #endregion
@@ -326,12 +331,20 @@ namespace Orchestra
                 cam_tsub = new Vector3(last_hip.X * 1000, last_hip.Y * 1000 + 500, last_hip.Z * 1000);
                 cam_tpos = cam_tsub + new Vector3(0, height, -distance);
             }
-            else if (cam_focus == CAM_FOCUS.TEMPO || cam_focus == CAM_FOCUS.FFT)
+            else if (cam_focus == CAM_FOCUS.TEMPO)
             {
                 float height = 1000;
                 float distance = 4000;
                 cam_speed = 50;
                 cam_tsub = new Vector3(last_hip.X * 1000 + 1250, last_hip.Y * 1000 + 500, last_hip.Z * 1000);
+                cam_tpos = cam_tsub + new Vector3(0, height, -distance);
+            }
+            else if (cam_focus == CAM_FOCUS.FFT)
+            {
+                float height = 1000;
+                float distance = 4000;
+                cam_speed = 50;
+                cam_tsub = new Vector3(last_head.X * 1000, last_head.Y * 1000 + 1000, last_head.Z * 1000);
                 cam_tpos = cam_tsub + new Vector3(0, height, -distance);
             }
 
@@ -446,7 +459,7 @@ namespace Orchestra
             GL.Begin(BeginMode.Points);
             for (int i = 0; i < last_ys.Length; ++i)
             {
-                GL.Vertex3(new Vector3(1000 * last_hip.X + 500 + (last_ys.Length - i) * 50, last_hip.Y + last_ys[i] * 1000, 1000 * last_hip.Z));
+                GL.Vertex3(new Vector3(1000 * last_hip.X + 500 + 50 * (last_ys.Length - i), 1000 * (last_hip.Y + last_ys[i]), 1000 * last_hip.Z));
             }
             GL.End();
             GL.LineWidth(4);
@@ -455,8 +468,37 @@ namespace Orchestra
             {
                 if (last_beats[i])
                 {
-                    GL.Vertex3(new Vector3(1000 * last_hip.X + 500 + (last_beats.Length - i) * 50, last_hip.Y - 500 + last_ys[i] * 1000, 1000 * last_hip.Z));
-                    GL.Vertex3(new Vector3(1000 * last_hip.X + 500 + (last_beats.Length - i) * 50, last_hip.Y + 500 + last_ys[i] * 1000, 1000 * last_hip.Z));
+                    GL.Vertex3(new Vector3(1000 * last_hip.X + 500 + (last_beats.Length - i) * 50, 1000 * (last_hip.Y + last_ys[i]) + 500, 1000 * last_hip.Z));
+                    GL.Vertex3(new Vector3(1000 * last_hip.X + 500 + (last_beats.Length - i) * 50, 1000 * (last_hip.Y + last_ys[i]) - 500, 1000 * last_hip.Z));
+                }
+            }
+            GL.End();
+        }
+
+        #endregion
+
+        #region FFT
+
+        public void RenderFFT(double dt)
+        {
+            if (skeleton == null || !render_fft) return;
+
+            GL.PointSize(4);
+            GL.Color3(1f, 1f, 1f);
+            GL.Begin(BeginMode.Points);
+            for (int i = 0; i < last_ys.Length; ++i)
+            {
+                GL.Vertex3(new Vector3(1000 * last_head.X - 750 + 50 * i, 1000 * (last_head.Y + last_ys[i]) + 1000, 1000 * last_head.Z));
+            }
+            GL.End();
+            GL.LineWidth(4);
+            GL.Begin(BeginMode.Lines);
+            for (int i = 0; i < last_beats.Length; ++i)
+            {
+                if (last_beats[i])
+                {
+                    GL.Vertex3(new Vector3(1000 * last_head.X - 750 + i * 50, 1000 * (last_head.Y + last_ys[i]) + 1500, 1000 * last_head.Z));
+                    GL.Vertex3(new Vector3(1000 * last_head.X - 750 + i * 50, 1000 * (last_head.Y + last_ys[i]) + 500, 1000 * last_head.Z));
                 }
             }
             GL.End();
