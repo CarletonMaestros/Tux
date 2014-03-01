@@ -34,7 +34,6 @@ namespace Orchestra
         Microsoft.Kinect.Skeleton[] skeletons;
         Microsoft.Kinect.Skeleton skeleton;
         double last_skeleton_time;
-        float skel_time { get { return (float)Math.Min(1, 30 * (time - last_skeleton_time)); } }
 
         double time;
         float cam_speed;
@@ -452,6 +451,8 @@ namespace Orchestra
         {
             if (skeleton == null || !render_fft) return;
 
+            float skel_time = (float)Math.Min(1, 30 * (time - last_skeleton_time));
+
             GL.PointSize(4);
             GL.Color3(1f, 1f, 1f);
             GL.Begin(BeginMode.Points);
@@ -514,15 +515,16 @@ namespace Orchestra
             GL.Begin(BeginMode.LineStrip);
             for (int i = 0; i < last_ys.Length * 10; ++i)
             {
-                GL.Vertex3(new Vector3(1000 * last_head.X - 750 + i * 5, 1000 * (last_head.Y - 2*a*(float)Math.Cos((i/10f-p)/last_ys.Length*f*2*(float)Math.PI) + b) + 1000, 1000 * last_head.Z));
+                GL.Vertex3(new Vector3(1000 * last_head.X - 750 + i * 5 - 50 * skel_time, 1000 * (last_head.Y - 2*a*(float)Math.Cos((i/10f-p)/last_ys.Length*f*2*(float)Math.PI) + b) + 1000, 1000 * last_head.Z));
             }
             GL.End();
             GL.LineWidth(4);
             GL.Begin(BeginMode.Lines);
-            for (int i = 0; i < f+1; ++i)
+            for (int i = 0; i < f + 1; ++i)
             {
-                GL.Vertex3(new Vector3(1000 * last_head.X - 750 + 50 * last_ys.Length * (1f * p / last_ys.Length % (1/f) + i / f), 1000 * (last_head.Y + b - 2 * a) + 500, 1000 * last_head.Z));
-                GL.Vertex3(new Vector3(1000 * last_head.X - 750 + 50 * last_ys.Length * (1f * p / last_ys.Length % (1/f) + i / f), 1000 * (last_head.Y + b - 2 * a) + 1500, 1000 * last_head.Z));
+                float height = 1000;
+                GL.Vertex3(new Vector3(1000 * last_head.X - 750 + 50 * last_ys.Length * (1f * p / last_ys.Length % (1/f) + i / f) - 50 * skel_time, 1000 * (last_head.Y + b - 2 * a) + 1000 - height / 2, 1000 * last_head.Z));
+                GL.Vertex3(new Vector3(1000 * last_head.X - 750 + 50 * last_ys.Length * (1f * p / last_ys.Length % (1/f) + i / f) - 50 * skel_time, 1000 * (last_head.Y + b - 2 * a) + 1000 + height / 2, 1000 * last_head.Z));
             }
             GL.End();
         }
