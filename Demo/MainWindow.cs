@@ -34,6 +34,7 @@ namespace Orchestra
         Microsoft.Kinect.Skeleton[] skeletons;
         Microsoft.Kinect.Skeleton skeleton;
         double last_skeleton_time;
+        float skel_time { get { return (float)Math.Min(1, 30 * (time - last_skeleton_time)); } }
 
         double time;
         float cam_speed;
@@ -50,12 +51,11 @@ namespace Orchestra
         {
             SCENE,
             SKELETON,
-            TEMPO,
             FFT,
         }
         CAM_FOCUS cam_focus = CAM_FOCUS.SCENE;
-        bool render_skeleton, render_tempo, render_fft;
-        int fft_slide = 0;
+        bool render_skeleton, render_fft;
+        int fft_slide = -1;
 
         #region MainWindow()
 
@@ -64,6 +64,9 @@ namespace Orchestra
             WindowState = WindowState.Fullscreen;
             CursorVisible = false;
             InitKinect();
+
+            cam_pos = new Vector3(8000, 2000, 2000);
+            cam_sub = new Vector3(0, 0, 2000);
 
             Keyboard.KeyDown += delegate(object sender, KeyboardKeyEventArgs e)
             {
@@ -75,11 +78,11 @@ namespace Orchestra
                     if (!shift_down) { render_skeleton = true; cam_focus = CAM_FOCUS.SKELETON; }
                     else { render_skeleton = false; if (cam_focus == CAM_FOCUS.SKELETON) cam_focus = CAM_FOCUS.SCENE; }
                 if (e.Key == Key.T)
-                    if (!shift_down) { render_tempo = true; cam_focus = CAM_FOCUS.TEMPO; }
-                    else { render_tempo = false; if (cam_focus == CAM_FOCUS.TEMPO) cam_focus = CAM_FOCUS.SCENE; }
+                    if (!shift_down) { render_fft = true; fft_slide = 0; cam_focus = CAM_FOCUS.FFT; }
+                    else { render_fft = false; fft_slide = -1; if (cam_focus == CAM_FOCUS.FFT) cam_focus = CAM_FOCUS.SCENE; }
                 if (e.Key == Key.F)
                     if (!shift_down) { render_fft = true; fft_slide++; cam_focus = CAM_FOCUS.FFT; }
-                    else { render_fft = false; fft_slide = 0; if (cam_focus == CAM_FOCUS.FFT) cam_focus = CAM_FOCUS.SCENE; }
+                    else { render_fft = false; fft_slide = -1; if (cam_focus == CAM_FOCUS.FFT) cam_focus = CAM_FOCUS.SCENE; }
                 if (e.Key == Key.Space)
                     cam_focus = CAM_FOCUS.SCENE;
             };
@@ -193,13 +196,13 @@ namespace Orchestra
 
             while (!exit)
             {
-                Update(Math.Min(.1, update_watch.Elapsed.TotalSeconds));
-                update_watch.Reset();
-                update_watch.Start();
+                double dt = Math.Min(.1, update_watch.Elapsed.TotalSeconds);
+                update_watch.Restart();
+                Update(dt);
 
-                Render(Math.Min(.1, render_watch.Elapsed.TotalSeconds));
-                render_watch.Reset(); //  Stopwatch may be inaccurate over larger intervals.
-                render_watch.Start(); // Plus, timekeeping is easier if we always start counting from 0.
+                dt = Math.Min(.1, render_watch.Elapsed.TotalSeconds);
+                render_watch.Restart();
+                Render(dt);
 
                 SwapBuffers();
             }
@@ -297,7 +300,6 @@ namespace Orchestra
             PositionCamera(dt);
             RenderPointCloud(dt);
             RenderSkeleton(dt);
-            RenderTempo(dt);
             RenderFFT(dt);
         }
 
@@ -333,14 +335,6 @@ namespace Orchestra
                 cam_tsub = new Vector3(last_hip.X * 1000, last_hip.Y * 1000 + 500, last_hip.Z * 1000);
                 cam_tpos = cam_tsub + new Vector3(0, height, -distance);
             }
-            else if (cam_focus == CAM_FOCUS.TEMPO)
-            {
-                float height = 1000;
-                float distance = 4000;
-                cam_speed = 50;
-                cam_tsub = new Vector3(last_hip.X * 1000 + 1250, last_hip.Y * 1000 + 500, last_hip.Z * 1000);
-                cam_tpos = cam_tsub + new Vector3(0, height, -distance);
-            }
             else if (cam_focus == CAM_FOCUS.FFT)
             {
                 float height = 1000;
@@ -351,10 +345,12 @@ namespace Orchestra
             }
 
             Vector3 dp = cam_tpos - cam_pos;
-            cam_dpos += (float)(dt) * cam_speed * ((dp + dp / dp.Length * 20 * (float)Math.Sqrt(dp.Length)) / 10 - cam_dpos / 10);
+            if (dp.Length > 1)
+                cam_dpos += (float)(dt) * cam_speed * ((dp + dp / dp.Length * 20 * (float)Math.Sqrt(dp.Length)) / 10 - cam_dpos / 10);
             cam_pos += (float)(dt) * cam_dpos;
             Vector3 ds = cam_tsub - cam_sub;
-            cam_dsub += (float)(dt) * cam_speed * ((ds + ds / ds.Length * 20 * (float)Math.Sqrt(ds.Length)) / 10 - cam_dsub / 10);
+            if (ds.Length > 1)
+                cam_dsub += (float)(dt) * cam_speed * ((ds + ds / ds.Length * 20 * (float)Math.Sqrt(ds.Length)) / 10 - cam_dsub / 10);
             cam_sub += (float)(dt) * cam_dsub;
             //cam_pos = cam_tpos;
             //cam_sub = cam_tsub;
@@ -450,36 +446,6 @@ namespace Orchestra
 
         #endregion
 
-        #region Tempo
-
-        public void RenderTempo(double dt)
-        {
-            if (skeleton == null || !render_tempo) return;
-
-            GL.PointSize(4);
-            GL.Color3(1f, 1f, 1f);
-            GL.Begin(BeginMode.Points);
-            for (int i = 0; i < last_ys.Length; ++i)
-            {
-                if (last_ys[i] != last_ys[i]) continue;
-                GL.Vertex3(new Vector3(1000 * last_hip.X + 500 + 50 * (last_ys.Length - i), 1000 * (last_hip.Y + (float)last_ys[i]), 1000 * last_hip.Z));
-            }
-            GL.End();
-            GL.LineWidth(4);
-            GL.Begin(BeginMode.Lines);
-            for (int i = 0; i < last_beats.Length; ++i)
-            {
-                if (last_beats[i])
-                {
-                    GL.Vertex3(new Vector3(1000 * last_hip.X + 500 + (last_beats.Length - i) * 50, 1000 * (last_hip.Y + (float)last_ys[i]) + 500, 1000 * last_hip.Z));
-                    GL.Vertex3(new Vector3(1000 * last_hip.X + 500 + (last_beats.Length - i) * 50, 1000 * (last_hip.Y + (float)last_ys[i]) - 500, 1000 * last_hip.Z));
-                }
-            }
-            GL.End();
-        }
-
-        #endregion
-
         #region FFT
 
         public void RenderFFT(double dt)
@@ -492,7 +458,7 @@ namespace Orchestra
             for (int i = 0; i < last_ys.Length; ++i)
             {
                 if (last_ys[i] != last_ys[i]) continue;
-                GL.Vertex3(new Vector3(1000 * last_head.X - 750 + 50 * i, 1000 * (last_head.Y + (float)last_ys[i]) + 1000, 1000 * last_head.Z));
+                GL.Vertex3(new Vector3(1000 * last_head.X - 750 + 50 * (i - skel_time), 1000 * (last_head.Y + (float)last_ys[i]) + 1000, 1000 * last_head.Z));
             }
             GL.End();
             GL.LineWidth(4);
@@ -501,8 +467,8 @@ namespace Orchestra
             {
                 if (last_beats[i])
                 {
-                    GL.Vertex3(new Vector3(1000 * last_head.X - 750 + i * 50, 1000 * (last_head.Y + (float)last_ys[i]) + 1500, 1000 * last_head.Z));
-                    GL.Vertex3(new Vector3(1000 * last_head.X - 750 + i * 50, 1000 * (last_head.Y + (float)last_ys[i]) + 500, 1000 * last_head.Z));
+                    GL.Vertex3(new Vector3(1000 * last_head.X - 750 + 50 * (i - skel_time), 1000 * (last_head.Y + (float)last_ys[i]) + 1500, 1000 * last_head.Z));
+                    GL.Vertex3(new Vector3(1000 * last_head.X - 750 + 50 * (i - skel_time), 1000 * (last_head.Y + (float)last_ys[i]) + 500, 1000 * last_head.Z));
                 }
             }
             GL.End();
@@ -537,8 +503,8 @@ namespace Orchestra
                 };
                 if (err < minerr) { minerr = err; mini = i; }
             }
-            Console.WriteLine("{0}:  {1}", mini, minerr);
             float f = f0 - 0.5f + mini/100f;
+            if (fft_slide < 1) return;
             if (fft_slide < 2) a = 0.25f;
             if (fft_slide < 3) b = 0;
             if (fft_slide < 4) p = 0;
