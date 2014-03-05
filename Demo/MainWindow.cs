@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Numerics;
-using System.Threading;
+using System.Timers;
 
 using OpenTK;
 using OpenTK.Graphics;
@@ -16,9 +16,10 @@ namespace Orchestra
 	// All rendering occurs on a background thread.
 	public class MainWindow : GameWindow
 	{
-		Thread render_thread;
+		System.Threading.Thread render_thread;
 		Random rand = new Random();
-		Stopwatch stopwatch = Stopwatch.StartNew();
+		Stopwatch stopwatch;
+		Timer timer;
 		State s, rs;
 
 		Microsoft.Kinect.KinectSensor kinect;
@@ -131,6 +132,12 @@ namespace Orchestra
 			s.cam_sub = new Vector3(0, 0, 2000);
 			rs = new State(this);
 
+			stopwatch = Stopwatch.StartNew();
+			timer = new Timer(1000/60);
+			timer.Elapsed += s.Update();
+			timer.AutoReset = true;
+			timer.Enabled = true;
+
 			Keyboard.KeyDown += s.KeyDown;
 			Keyboard.KeyUp += s.KeyUp;
 			Resize += s.Resize;
@@ -241,13 +248,60 @@ namespace Orchestra
 				if (!hand_falling && last_ys[last_ys.Length - 3] > last_ys[last_ys.Length - 2] && last_ys[last_ys.Length - 2] > last_ys[last_ys.Length - 1])
 					hand_falling = true;
 			}
+
+			public void Update(object sender, ElapsedEventArgs e)
+			{
+				UpdateCamera();
+			}
+
+			public void UpdateCamera()
+			{
+				float dt = (float)window.stopwatch.Elapsed.TotalSeconds - camera_time;
+				camera_time = window.stopwatch.Elapsed.TotalSeconds;
+
+				float cam_speed = 1;
+				if (cam_focus == CAM_FOCUS.SCENE)
+				{
+					float focus = 2000;
+					float distance = 8000;
+					float height = 2000;
+					scam_theta += dt / (0.5-window.rand.NextDouble()) / 10;
+					cam_tpos = new Vector3((float)(distance * Math.Cos(scam_theta)), (float)height, (float)(focus + distance * Math.Sin(scam_theta)));
+					cam_tsub = new Vector3(0, 0, focus);
+				}
+				else if (cam_focus == CAM_FOCUS.SKELETON)
+				{
+					float height = 1000;
+					float distance = 4000;
+					cam_speed = 50;
+					cam_tsub = new Vector3(hip.X * 1000, hip.Y * 1000 + 500, hip.Z * 1000);
+					cam_tpos = cam_tsub + new Vector3(0, height, -distance);
+				}
+				else if (cam_focus == CAM_FOCUS.FFT)
+				{
+					float height = 1000;
+					float distance = 4000;
+					cam_speed = 50;
+					cam_tsub = new Vector3(head.X * 1000, head.Y * 1000 + 1000, head.Z * 1000);
+					cam_tpos = cam_tsub + new Vector3(0, height, -distance);
+				}
+
+				Vector3 dp = cam_tpos - cam_pos;
+				if (dp.Length > 1)
+					cam_dpos += dt * cam_speed * ((dp + dp / dp.Length * 20 * (float)Math.Sqrt(dp.Length)) / 10 - cam_dpos / 10);
+				cam_pos += dt * cam_dpos;
+				Vector3 ds = cam_tsub - cam_sub;
+				if (ds.Length > 1)
+					cam_dsub += dt * cam_speed * ((ds + ds / ds.Length * 20 * (float)Math.Sqrt(ds.Length)) / 10 - cam_dsub / 10);
+				cam_sub += dt * cam_dsub;
+			}
 		}
 
 		protected override void OnLoad(EventArgs e)
 		{
 			Context.MakeCurrent(null); // Release the OpenGL context so it can be used on the new thread.
 
-			render_thread = new Thread(RenderLoop);
+			render_thread = new System.Threading.Thread(RenderLoop);
 			render_thread.IsBackground = true;
 			render_thread.Start();
 		}
@@ -286,59 +340,23 @@ namespace Orchestra
 				GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
 				GL.Viewport(0, 0, viewport_width, viewport_height);
 
-				PositionCamera();
+				SetupCamera();
 				RenderPointCloud();
 				RenderSkeleton();
 				RenderFFT();
 			}
 
-			void PositionCamera()
+			void SetupCamera()
 			{
-				float dt = (float)window.stopwatch.Elapsed.TotalSeconds;
-
 				Matrix4 projection = Matrix4.CreatePerspectiveFieldOfView((float)Math.PI / 4, (float)(viewport_width / viewport_height), 1f, 100000f);
 				GL.MatrixMode(MatrixMode.Projection);
 				GL.LoadMatrix(ref projection);
 
-				float cam_speed = 1;
-				if (cam_focus == CAM_FOCUS.SCENE)
-				{
-					float focus = 2000;
-					float distance = 8000;
-					float height = 2000;
-					scam_theta += dt / (0.5-window.rand.NextDouble()) / 10;
-					cam_tpos = new Vector3((float)(distance * Math.Cos(scam_theta)), (float)height, (float)(focus + distance * Math.Sin(scam_theta)));
-					cam_tsub = new Vector3(0, 0, focus);
-				}
-				else if (cam_focus == CAM_FOCUS.SKELETON)
-				{
-					float height = 1000;
-					float distance = 4000;
-					cam_speed = 50;
-					cam_tsub = new Vector3(hip.X * 1000, hip.Y * 1000 + 500, hip.Z * 1000);
-					cam_tpos = cam_tsub + new Vector3(0, height, -distance);
-				}
-				else if (cam_focus == CAM_FOCUS.FFT)
-				{
-					float height = 1000;
-					float distance = 4000;
-					cam_speed = 50;
-					cam_tsub = new Vector3(head.X * 1000, head.Y * 1000 + 1000, head.Z * 1000);
-					cam_tpos = cam_tsub + new Vector3(0, height, -distance);
-				}
+				float dt = (float)window.stopwatch.Elapsed.TotalSeconds - camera_time;
+				Vector3 pos = cam_pos + dt * cam_dpos;
+				Vector3 sub = cam_sub + dt * cam_dsub;
 
-				Vector3 dp = cam_tpos - cam_pos;
-				if (dp.Length > 1)
-					cam_dpos += dt * cam_speed * ((dp + dp / dp.Length * 20 * (float)Math.Sqrt(dp.Length)) / 10 - cam_dpos / 10);
-				cam_pos += dt * cam_dpos;
-				Vector3 ds = cam_tsub - cam_sub;
-				if (ds.Length > 1)
-					cam_dsub += dt * cam_speed * ((ds + ds / ds.Length * 20 * (float)Math.Sqrt(ds.Length)) / 10 - cam_dsub / 10);
-				cam_sub += dt * cam_dsub;
-				//cam_pos = cam_tpos;
-				//cam_sub = cam_tsub;
-
-				Matrix4 modelview = Matrix4.LookAt(cam_pos, cam_sub, Vector3.UnitY);
+				Matrix4 modelview = Matrix4.LookAt(pos, sub, Vector3.UnitY);
 				GL.MatrixMode(MatrixMode.Modelview);
 				GL.LoadMatrix(ref modelview);
 			}
