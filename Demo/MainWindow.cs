@@ -104,7 +104,7 @@ namespace Orchestra
 							skeleton_frame_copied = true;
 						}
 
-						if (skeletons != null && dest.skeletons != null) Array.Copy(skeletons, dest.skeletons, skeleton_frame.SkeletonArrayLength);
+						if (skeleton_frame != null) Array.Copy(skeletons, dest.skeletons, skeleton_frame.SkeletonArrayLength);
 						dest.skeleton = skeleton;
 						Array.Copy(last_ys, dest.last_ys, last_ys.Length);
 						Array.Copy(last_beats, dest.last_beats, last_beats.Length);
@@ -134,7 +134,7 @@ namespace Orchestra
 
 			stopwatch = Stopwatch.StartNew();
 			timer = new Timer(1000/60);
-			timer.Elapsed += s.Update();
+			timer.Elapsed += s.Update;
 			timer.AutoReset = true;
 			timer.Enabled = true;
 
@@ -256,7 +256,7 @@ namespace Orchestra
 
 			public void UpdateCamera()
 			{
-				float dt = (float)window.stopwatch.Elapsed.TotalSeconds - camera_time;
+				float dt = (float)(window.stopwatch.Elapsed.TotalSeconds - camera_time);
 				camera_time = window.stopwatch.Elapsed.TotalSeconds;
 
 				float cam_speed = 1;
@@ -352,7 +352,7 @@ namespace Orchestra
 				GL.MatrixMode(MatrixMode.Projection);
 				GL.LoadMatrix(ref projection);
 
-				float dt = (float)window.stopwatch.Elapsed.TotalSeconds - camera_time;
+				float dt = (float)(window.stopwatch.Elapsed.TotalSeconds - camera_time);
 				Vector3 pos = cam_pos + dt * cam_dpos;
 				Vector3 sub = cam_sub + dt * cam_dsub;
 
